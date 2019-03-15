@@ -1,42 +1,36 @@
 <?php
 
 /*
-    Copyright (C) 2014-2016 Deciso B.V.
-    Copyright (C) 2010 Ermal Luçi
-    Copyright (C) 2007-2008 Scott Ullrich <sullrich@gmail.com>
-    Copyright (C) 2005-2006 Bill Marquette <bill.marquette@gmail.com>
-    Copyright (C) 2006 Paul Taylor <paultaylor@winn-dixie.com>.
-    Copyright (C) 2003-2006 Manuel Kasper <mk@neon1.net>.
-    All rights reserved.
-
-    Redistribution and use in source and binary forms, with or without
-    modification, are permitted provided that the following conditions are met:
-
-    1. Redistributions of source code must retain the above copyright notice,
-       this list of conditions and the following disclaimer.
-
-    2. Redistributions in binary form must reproduce the above copyright
-       notice, this list of conditions and the following disclaimer in the
-       documentation and/or other materials provided with the distribution.
-
-    THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
-    INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
-    AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
-    AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
-    OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-    SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-    INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-    CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-    ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-    POSSIBILITY OF SUCH DAMAGE.
-*/
-
-/*
- * NOTE : Portions of the mschapv2 support was based on the BSD licensed CHAP.php
- * file courtesy of Michael Retterklieber.
+ * Copyright (C) 2014-2016 Deciso B.V.
+ * Copyright (C) 2010 Ermal Luçi
+ * Copyright (C) 2007-2008 Scott Ullrich <sullrich@gmail.com>
+ * Copyright (C) 2005-2006 Bill Marquette <bill.marquette@gmail.com>
+ * Copyright (C) 2006 Paul Taylor <paultaylor@winn-dixie.com>
+ * Copyright (C) 2003-2006 Manuel Kasper <mk@neon1.net>
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
+ * AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
+ * OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
  */
 
-/* include globals from notices.inc /utility/XML parser files */
 require_once("interfaces.inc");
 require_once("util.inc");
 
@@ -49,7 +43,7 @@ if (function_exists("display_error_form") && !isset($config['system']['webgui'][
     /* DNS ReBinding attack prevention */
     $found_host = false;
 
-    /* Either a IPv6 address with or without a alternate port */
+    /* either an IPv6 address with or without an alternate port */
     if (strstr($_SERVER['HTTP_HOST'], "]")) {
         $http_host_port = explode("]", $_SERVER['HTTP_HOST']);
         /* v6 address has more parts, drop the last part */
@@ -356,6 +350,29 @@ function userHasPrivilege($userent, $privid = false)
     return true;
 }
 
+function auth_get_shells($uid = 0)
+{
+    $shells = array('' => '/sbin/nologin');
+
+    if ($uid == 0) {
+        $shells = array('' => '/usr/local/sbin/opnsense-shell');
+    }
+
+    $etc_shells = @file_get_contents('/etc/shells');
+    if (!empty($etc_shells)) {
+        $etc_shells = explode("\n", $etc_shells);
+        foreach ($etc_shells as $shell) {
+            $shell = trim($shell);
+            if (!empty($shell) && strpos($shell, '#') !== 0 &&
+                strpos($shell, '/usr/local/sbin/opnsense-') !== 0) {
+                $shells[$shell] = $shell;
+            }
+        }
+    }
+
+    return $shells;
+}
+
 function local_sync_accounts()
 {
     global $config;
@@ -422,41 +439,54 @@ function local_user_set(&$user, $force_password = false)
         return;
     }
 
-    $user_uid = $user['uid'];
-    $user_name = $user['name'];
+    @mkdir('/home', 0755);
+
     $user_pass = $user['password'];
-    $user_home = "/home/{$user_name}";
-    $user_shell = '/sbin/nologin';
-    $user_group = 'nobody';
+    $user_name = $user['name'];
+    $user_uid = $user['uid'];
+
     $lock_account = 'lock';
 
-    @mkdir('/home', 0755);
+    $is_expired = !empty($user['expires']) &&
+        strtotime('-1 day') > strtotime(date('m/d/Y', strtotime($user['expires'])));
+
+    $is_disabled = isset($user['disabled']);
+
+    $is_unlocked = !$is_disabled && !$is_expired;
+
+    if ($is_unlocked) {
+        $lock_account = 'unlock';
+    } elseif ($user_uid == 0) {
+        /*
+         * The root account should not be locked as this will have
+         * side-effects such as cron not working correctly.  Set
+         * password to unreachable "*" instead.  Our auth framework
+         * already checks for disabled elsewhere so we only need to
+         * prevent root login in the console when integrated
+         * authentication is off.
+         */
+        $lock_account = 'unlock';
+        $user_pass = '*';
+    }
+
+    if ($user_uid == 0) {
+        $user_shell = isset($user['shell']) ? $user['shell'] : '/usr/local/sbin/opnsense-shell';
+        $user_group = 'wheel';
+        $user_home = '/root';
+    } else {
+        $user_shell = isset($user['shell']) ? $user['shell'] : '/sbin/nologin';
+        $user_home = "/home/{$user_name}";
+        $user_group = 'nobody';
+    }
 
     /* admins access gives wheely rights */
     if (userHasPrivilege($user, 'page-all')) {
         $user_group = 'wheel';
     }
 
-    /* configure shell type */
-    if (userHasPrivilege($user, 'user-shell-access')) {
-        $user_shell = '/bin/csh';
-    }
-
-    /* unlock valid shell users */
-    if (!is_account_disabled($user_name) && !is_account_expired($user_name)) {
-        $lock_account = 'unlock';
-    }
-
     /* passwords only when integrated auth is disabled or forced */
     if (!$force_password && empty($config['system']['disableintegratedauth'])) {
         $user_pass = '*';
-    }
-
-    /* root user special handling */
-    if ($user_uid == 0) {
-        $user_shell = isset($user['shell']) ? $user['shell'] : '/usr/local/etc/rc.initial';
-        $user_group = 'wheel';
-        $user_home = '/root';
     }
 
     /* read from pw db */
@@ -487,7 +517,7 @@ function local_user_set(&$user, $force_password = false)
     @chgrp($user_home, $user_group);
 
     /* write out ssh authorized key file */
-    if (isset($user['authorizedkeys'])) {
+    if ($is_unlocked && isset($user['authorizedkeys'])) {
         @mkdir("{$user_home}/.ssh", 0700);
         @chown("{$user_home}/.ssh", $user_name);
         $keys = base64_decode($user['authorizedkeys']);
@@ -527,11 +557,6 @@ function local_user_set_password(&$user, $password = null)
 
     $hash = password_hash($password, PASSWORD_BCRYPT, [ 'cost' => $cost ]);
     if ($hash !== false) {
-        /*
-         * $2y$ returned is supported in FreeBSD 11.0 and up,
-         * but we started with FreeBSD 10.3 so need to fix:
-         */
-        $hash[2] = 'b';
         $user['password'] = $hash;
     }
 }
@@ -660,56 +685,11 @@ function local_group_del($group)
     mwexecf('/usr/sbin/pw groupdel %s', $group['name']);
 }
 
-function ldap_setup_caenv($authcfg)
-{
-    unset($caref);
 
-    if (empty($authcfg['ldap_caref']) || !strstr($authcfg['ldap_urltype'], "SSL")) {
-        putenv('LDAPTLS_REQCERT=never');
-        return;
-    }
-
-    $caref = lookup_ca($authcfg['ldap_caref']);
-    if (!$caref) {
-        log_error(sprintf('LDAP: Could not lookup CA by reference for host %s.', $authcfg['ldap_caref']));
-        /* XXX: Prevent for credential leaking since we cannot setup the CA env. Better way? */
-        putenv('LDAPTLS_REQCERT=hard');
-        return;
-    }
-
-    @mkdir("/var/run/certs");
-    @unlink("/var/run/certs/{$caref['refid']}.ca");
-    file_put_contents("/var/run/certs/{$caref['refid']}.ca", base64_decode($caref['crt']));
-    @chmod("/var/run/certs/{$caref['refid']}.ca", 0600);
-    putenv('LDAPTLS_REQCERT=hard');
-    /* XXX: Probably even the hashed link should be created for this? */
-    putenv("LDAPTLS_CACERTDIR=/var/run/certs");
-    putenv("LDAPTLS_CACERT=/var/run/certs/{$caref['refid']}.ca");
-}
-
-
-function is_account_expired($username)
-{
-    $user = getUserEntry($username);
-    if (isset($user['expires']) && !empty($user['expires'])) {
-        if (strtotime("-1 day") > strtotime(date("m/d/Y",strtotime($user['expires'])))) {
-            return true;
-        }
-    }
-
-    return false;
-}
-
-function is_account_disabled($username)
-{
-    $user = getUserEntry($username);
-    if (isset($user['disabled'])) {
-        return true;
-    }
-
-    return false;
-}
-
+/**
+ * @param $name string name of the authentication system configured on the authentication server page or 'Local Database' for local authentication
+ * @return array|bool false if the authentication server was not found, otherwise the configuration of the authentication server
+ */
 function auth_get_authserver($name)
 {
     global $config;
@@ -725,7 +705,7 @@ function auth_get_authserver($name)
     if (isset($config['system']['authserver']) && is_array($config['system']['authserver'])) {
         foreach ($config['system']['authserver'] as $authcfg) {
             if ($authcfg['name'] == $name) {
-                if ($authcfg['type'] == 'ldap') {
+                if ($authcfg['type'] == 'ldap' || $authcfg['type'] == 'ldap-totp') {
                     // let's try to avoid regenerating the ldap url in every function.
                     if (strstr($authcfg['ldap_urltype'], "Standard")) {
                         $authcfg['ldap_full_url'] = "ldap://";
@@ -769,7 +749,12 @@ function auth_get_authserver_list()
     return $list;
 }
 
-function authenticate_user($username, $password, $authcfg = NULL)
+/**
+ * return authenticator object
+ * @param array|null $authcfg configuration
+ * @return Auth\Base type object
+ */
+function get_authenticator($authcfg = NULL)
 {
     if (empty($authcfg)) {
         $authName = 'Local Database';
@@ -778,19 +763,20 @@ function authenticate_user($username, $password, $authcfg = NULL)
         if ($authcfg['type'] == 'local') {
             // avoid gettext type issues on Local Database, authenticator should always be named "Local Database"
             $authName = 'Local Database';
-        } elseif ($authcfg['type'] == 'ldap') {
-            // temporary fix, ldap handler doesn't do this init yet.
-            ldap_setup_caenv($authcfg);
         }
     }
 
     $authFactory = new OPNsense\Auth\AuthenticationFactory;
-    $authenticator = $authFactory->get($authName);
+    return $authFactory->get($authName);
+}
 
+function authenticate_user($username, $password, $authcfg = NULL)
+{
+    $authenticator = get_authenticator($authcfg);
     if ($authenticator != null) {
         return $authenticator->authenticate($username, $password) ;
     } else {
-        log_error('Unable to retrieve authenticator for '. $authName);
+        log_error('Unable to retrieve authenticator for '. $username);
         return false;
     }
 }

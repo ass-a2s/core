@@ -31,7 +31,7 @@ POSSIBILITY OF SUCH DAMAGE.
     }
 </style>
 
-<script type="text/javascript">
+<script>
 
     $( document ).ready(function() {
 
@@ -64,7 +64,22 @@ POSSIBILITY OF SUCH DAMAGE.
                     get:'/api/trafficshaper/settings/getRule/',
                     set:'/api/trafficshaper/settings/setRule/',
                     add:'/api/trafficshaper/settings/addRule/',
-                    del:'/api/trafficshaper/settings/delRule/'
+                    del:'/api/trafficshaper/settings/delRule/',
+                    toggle:'/api/trafficshaper/settings/toggleRule/',
+                    options: {
+                        responseHandler: function (response) {
+                            // concatenate fields for not.
+                            if ('rows' in response) {
+                                for (var i = 0; i < response.rowCount; i++) {
+                                    response.rows[i]['displaysrc'] = {'not':response.rows[i].source_not == '1',
+                                                                      'val':response.rows[i].source};
+                                    response.rows[i]['displaydst'] = {'not':response.rows[i].destination_not == '1',
+                                                                      'val':response.rows[i].destination};
+                                }
+                            }
+                            return response;
+                        }
+                    }
                 }
         );
 
@@ -78,7 +93,7 @@ POSSIBILITY OF SUCH DAMAGE.
          */
         $("#reconfigureAct").click(function(){
             $("#reconfigureAct_progress").addClass("fa fa-spinner fa-pulse");
-            ajaxCall(url="/api/trafficshaper/service/reconfigure", sendData={}, callback=function(data,status) {
+            ajaxCall("/api/trafficshaper/service/reconfigure", {}, function(data,status) {
                 // when done, disable progress animation.
                 $("#reconfigureAct_progress").removeClass("fa fa-spinner fa-pulse");
 
@@ -104,7 +119,7 @@ POSSIBILITY OF SUCH DAMAGE.
                   action: function(dialogRef){
                       dialogRef.close();
                       $("#flushAct_progress").addClass("fa fa-spinner fa-pulse");
-                      ajaxCall(url="/api/trafficshaper/service/flushreload", sendData={}, callback=function(data,status) {
+                      ajaxCall("/api/trafficshaper/service/flushreload", {}, function(data,status) {
                           // when done, disable progress animation.
                           $("#flushAct_progress").removeClass("fa fa-spinner fa-pulse");
                       });
@@ -136,7 +151,7 @@ POSSIBILITY OF SUCH DAMAGE.
     <li><a data-toggle="tab" href="#queues">{{ lang._('Queues') }}</a></li>
     <li><a data-toggle="tab" href="#rules">{{ lang._('Rules') }}</a></li>
 </ul>
-<div class="tab-content content-box tab-content">
+<div class="tab-content content-box">
     <div id="pipes" class="tab-pane fade in active">
         <!-- tab page "pipes" -->
         <table id="grid-pipes" class="table table-condensed table-hover table-striped table-responsive" data-editDialog="DialogPipe">
@@ -200,12 +215,13 @@ POSSIBILITY OF SUCH DAMAGE.
         <table id="grid-rules" class="table table-condensed table-hover table-striped table-responsive" data-editDialog="DialogRule">
             <thead>
             <tr>
-                <th data-column-id="sequence" data-type="number">{{ lang._('#') }}</th>
+                <th data-column-id="enabled" data-width="6em" data-type="string" data-formatter="rowtoggle">{{ lang._('Enabled') }}</th>
+                <th data-column-id="sequence"  data-width="6em" data-type="number">{{ lang._('#') }}</th>
                 <th data-column-id="origin" data-type="string"  data-visible="false">{{ lang._('Origin') }}</th>
                 <th data-column-id="interface" data-type="string">{{ lang._('Interface') }}</th>
                 <th data-column-id="proto" data-type="string">{{ lang._('Protocol') }}</th>
-                <th data-column-id="source" data-type="string">{{ lang._('Source') }}</th>
-                <th data-column-id="destination" data-type="string">{{ lang._('Destination') }}</th>
+                <th data-column-id="displaysrc" data-type="notprefixable">{{ lang._('Source') }}</th>
+                <th data-column-id="displaydst" data-type="notprefixable">{{ lang._('Destination') }}</th>
                 <th data-column-id="target" data-type="string">{{ lang._('Target') }}</th>
                 <th data-column-id="description" data-type="string">{{ lang._('Description') }}</th>
                 <th data-column-id="commands" data-width="7em" data-formatter="commands" data-sortable="false">{{ lang._('Commands') }}</th>

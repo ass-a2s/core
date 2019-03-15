@@ -1,8 +1,7 @@
 <?php
 
-/**
+/*
  *    Copyright (C) 2015 Deciso B.V.
- *
  *    All rights reserved.
  *
  *    Redistribution and use in source and binary forms, with or without
@@ -25,11 +24,12 @@
  *    CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
  *    ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  *    POSSIBILITY OF SUCH DAMAGE.
- *
  */
+
 namespace OPNsense\Base\Menu;
 
 use OPNsense\Core\Config;
+use \Phalcon\DI\FactoryDefault;
 
 /**
  * Class MenuSystem
@@ -43,8 +43,19 @@ class MenuSystem
     private $root = null;
 
     /**
+     * @var string location to store merged menu xml
+     */
+    private $menuCacheFilename = null;
+
+    /**
+     * @var int time to live for merged menu xml
+     */
+    private $menuCacheTTL = 3600;
+
+    /**
      * add menu structure to root
      * @param string $filename menu xml filename
+     * @return \SimpleXMLElement
      * @throws MenuInitException unloadable menu xml
      */
     private function addXML($filename)
@@ -61,10 +72,7 @@ class MenuSystem
             throw new MenuInitException('Menu xml '.$filename.' seems to be of wrong type');
         }
 
-        // traverse items
-        foreach ($menuXml as $key => $node) {
-            $this->root->addXmlNode($node);
-        }
+        return $menuXml;
     }
 
     /**
@@ -88,34 +96,140 @@ class MenuSystem
     }
 
     /**
+     * invalidate cache, removes cache file from disk if available, which forces the next request to persist() again
+     */
+    public function invalidateCache()
+    {
+        @unlink($this->menuCacheFilename);
+    }
+
+    /**
+     * Load and persist Menu configuration to disk.
+     * @param bool $nowait when the cache is locked, skip waiting for it to become available.
+     * @return SimpleXMLElement
+     * @throws MenuInitException
+     */
+    public function persist($nowait = true)
+    {
+        // fetch our model locations
+        if (!empty(FactoryDefault::getDefault()->get('config')->application->modelsDir)) {
+            $modelDirs = FactoryDefault::getDefault()->get('config')->application->modelsDir;
+            if (!is_array($modelDirs) && !is_object($modelDirs)) {
+                $modelDirs = array($modelDirs);
+            }
+        } else {
+            // failsafe, if we don't have a Phalcon Dependency Injector object, use our relative location
+            $modelDirs = array("__DIR__.'/../../../");
+        }
+
+        // collect all XML menu definitions into a single file
+        $menuXml = new \DOMDocument('1.0');
+        $root = $menuXml->createElement('menu');
+        $menuXml->appendChild($root);
+        // crawl all vendors and modules and add menu definitions
+        foreach ($modelDirs as $modelDir) {
+            foreach (glob(preg_replace('#/+#', '/', "{$modelDir}/*")) as $vendor) {
+                foreach (glob($vendor.'/*') as $module) {
+                    $menu_cfg_xml = $module.'/Menu/Menu.xml';
+                    if (file_exists($menu_cfg_xml)) {
+                        $domNode = dom_import_simplexml($this->addXML($menu_cfg_xml));
+                        $domNode = $root->ownerDocument->importNode($domNode, true);
+                        $root->appendChild($domNode);
+                    }
+                }
+            }
+        }
+        // flush to disk
+        $fp = fopen($this->menuCacheFilename, file_exists($this->menuCacheFilename) ? "r+" : "w+");
+        $lockMode = $nowait ? LOCK_EX | LOCK_NB : LOCK_EX;
+        if (flock($fp, $lockMode)) {
+            ftruncate($fp, 0);
+            fwrite($fp, $menuXml->saveXML());
+            fflush($fp);
+            flock($fp, LOCK_UN);
+            fclose($fp);
+            chmod($this->menuCacheFilename, 0660);
+        }
+        // return generated xml
+        return simplexml_import_dom($root);
+    }
+
+    /**
+     * check if stored menu's are expired
+     * @return bool is expired
+     */
+    public function isExpired()
+    {
+        if (file_exists($this->menuCacheFilename)) {
+            $fstat = stat($this->menuCacheFilename);
+            return $this->menuCacheTTL < (time() - $fstat['mtime']);
+        }
+        return true;
+    }
+
+    /**
      * construct a new menu
      * @throws MenuInitException
      */
     public function __construct()
     {
+        // set cache location
+        $this->menuCacheFilename = sys_get_temp_dir(). "/opnsense_menu_cache.xml";
+
+        // load menu xml's
+        $menuxml = null;
+        if (!$this->isExpired()) {
+            $menuxml = @simplexml_load_file($this->menuCacheFilename);
+        }
+        if ($menuxml == null) {
+            $menuxml = $this->persist();
+        }
+
+        // load menu xml's
         $this->root = new MenuItem("root");
-        // crawl all vendors and modules and add menu definitions
-        foreach (glob(__DIR__.'/../../../*') as $vendor) {
-            foreach (glob($vendor.'/*') as $module) {
-                $menu_cfg_xml = $module.'/Menu/Menu.xml';
-                if (file_exists($menu_cfg_xml)) {
-                    $this->addXML($menu_cfg_xml);
-                }
+        foreach ($menuxml as $menu) {
+            foreach ($menu as $node) {
+                $this->root->addXmlNode($node);
             }
         }
-        // add interfaces to "Interfaces" menu tab... kind of a hack, may need some improvement.
-        $ifarr = array();
+
         $config = Config::getInstance()->object();
+
+        // collect interfaces for dynamic (interface) menu tabs...
+        $iftargets = array("if" => array(), "wl" => array(), "fw" => array(), "dhcp4" => array(), "dhcp6" => array());
         if ($config->interfaces->count() > 0) {
             foreach ($config->interfaces->children() as $key => $node) {
+                // Interfaces tab
                 if (empty($node->virtual)) {
-                    $ifarr[$key] = !empty($node->descr) ? (string)$node->descr : strtoupper($key);
+                    $iftargets['if'][$key] = !empty($node->descr) ? (string)$node->descr : strtoupper($key);
+                }
+                // Wireless status tab
+                if (!empty($node->wireless)) {
+                    $iftargets['wl'][$key] = !empty($node->descr) ? (string)$node->descr : strtoupper($key);
+                }
+                // "Firewall: Rules" menu tab...
+                if (isset($node->enable)) {
+                    $iftargets['fw'][$key] = !empty($node->descr) ? (string)$node->descr : strtoupper($key);
+                }
+                // "Services: DHCPv[46]" menu tab:
+                if (empty($node->virtual) && isset($node->enable)) {
+                    if (!empty(filter_var($node->ipaddr, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4))) {
+                        $iftargets['dhcp4'][$key] = !empty($node->descr) ? (string)$node->descr : strtoupper($key);
+                    }
+                    if (!empty(filter_var($node->ipaddrv6, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) || !empty($node->dhcpd6track6allowoverride)) {
+                        $iftargets['dhcp6'][$key] = !empty($node->descr) ? (string)$node->descr : strtoupper($key);
+                    }
                 }
             }
         }
-        natcasesort($ifarr);
+
+        foreach (array_keys($iftargets) as $tab) {
+            natcasesort($iftargets[$tab]);
+        }
+
+        // add interfaces to "Interfaces" menu tab...
         $ordid = 0;
-        foreach ($ifarr as $key => $descr) {
+        foreach ($iftargets['if'] as $key => $descr) {
             $this->appendItem('Interfaces', $key, array(
                 'url' => '/interfaces.php?if='. $key,
                 'visiblename' => '[' . $descr . ']',
@@ -123,7 +237,87 @@ class MenuSystem
                 'order' => $ordid++,
             ));
         }
-        unset($ifarr);
+
+        $ordid = 100;
+        foreach ($iftargets['wl'] as $key => $descr) {
+            $this->appendItem('Interfaces.Wireless', $key, array(
+                'visiblename' => sprintf(gettext('%s Status'), $descr),
+                'url' => '/status_wireless.php?if='. $key,
+                'order' => $ordid++,
+            ));
+        }
+
+        // add interfaces to "Firewall: Rules" menu tab...
+        $iftargets['fw'] = array_merge(array('FloatingRules' => gettext('Floating')), $iftargets['fw']);
+        $ordid = 0;
+        foreach ($iftargets['fw'] as $key => $descr) {
+            $this->appendItem('Firewall.Rules', $key, array(
+                'url' => '/firewall_rules.php?if='. $key,
+                'visiblename' => $descr,
+                'order' => $ordid++,
+            ));
+            $this->appendItem('Firewall.Rules.' . $key, 'Select' . $key, array(
+                'url' => '/firewall_rules.php?if='. $key. '&*',
+                'visibility' => 'hidden',
+            ));
+            if ($key == 'FloatingRules') {
+                $this->appendItem('Firewall.Rules.' . $key, 'Top' . $key, array(
+                    'url' => '/firewall_rules.php',
+                    'visibility' => 'hidden',
+                ));
+            }
+            $this->appendItem('Firewall.Rules.' . $key, 'Add' . $key, array(
+                'url' => '/firewall_rules_edit.php?if='. $key,
+                'visibility' => 'hidden',
+            ));
+            $this->appendItem('Firewall.Rules.' . $key, 'Edit' . $key, array(
+                'url' => '/firewall_rules_edit.php?if=' . $key . '&*',
+                'visibility' => 'hidden',
+            ));
+        }
+
+        // add interfaces to "Services: DHCPv[46]" menu tab:
+        $ordid = 0;
+        foreach ($iftargets['dhcp4'] as $key => $descr) {
+            $this->appendItem('Services.DHCPv4', $key, array(
+                'url' => '/services_dhcp.php?if='. $key,
+                'visiblename' => "[$descr]",
+                'order' => $ordid++,
+            ));
+            $this->appendItem('Services.DHCPv4.' . $key, 'Edit' . $key, array(
+                'url' => '/services_dhcp.php?if='. $key . '&*',
+                'visibility' => 'hidden',
+            ));
+            $this->appendItem('Services.DHCPv4.' . $key, 'AddStatic' . $key, array(
+                'url' => '/services_dhcp_edit.php?if='. $key,
+                'visibility' => 'hidden',
+            ));
+            $this->appendItem('Services.DHCPv4.' . $key, 'EditStatic' . $key, array(
+                'url' => '/services_dhcp_edit.php?if='. $key . '&*',
+                'visibility' => 'hidden',
+            ));
+        }
+        $ordid = 0;
+        foreach ($iftargets['dhcp6'] as $key => $descr) {
+            $this->appendItem('Services.DHCPv6', $key, array(
+                'url' => '/services_dhcpv6.php?if='. $key,
+                'visiblename' => "[$descr]",
+                'order' => $ordid++,
+            ));
+            $this->appendItem('Services.DHCPv6.' . $key, 'Add' . $key, array(
+                'url' => '/services_dhcpv6_edit.php?if='. $key,
+                'visibility' => 'hidden',
+            ));
+            $this->appendItem('Services.DHCPv6.' . $key, 'Edit' . $key, array(
+                'url' => '/services_dhcpv6_edit.php?if='. $key . '&*',
+                'visibility' => 'hidden',
+            ));
+            $this->appendItem('Services.RouterAdv', $key, array(
+                'url' => '/services_router_advertisements.php?if='. $key,
+                'visiblename' => "[$descr]",
+                'order' => $ordid++,
+            ));
+        }
     }
 
     /**
@@ -152,6 +346,11 @@ class MenuSystem
             $next = null;
             foreach ($nodes as $node) {
                 if ($node->Selected) {
+                    /* ignore client-side anchor in breadcrumb */
+                    if (!empty($node->Url) && strpos($node->Url, '#') !== false) {
+                        $next = null;
+                        break;
+                    }
                     $breadcrumbs[] = array('name' => $node->VisibleName);
                     /* only go as far as the first reachable URL */
                     $next = empty($node->Url) ? $node->Children : null;

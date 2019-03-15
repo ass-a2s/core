@@ -5,19 +5,19 @@
   <head>
 
     <meta charset="UTF-8" />
-    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
 
     <meta name="robots" content="noindex, nofollow, noodp, noydir" />
     <meta name="keywords" content="" />
     <meta name="description" content="" />
     <meta name="copyright" content="" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1" />
 
-    <title>{{title|default("OPNsense") }}</title>
+    <title>{{headTitle|default("OPNsense") }} | {{system_hostname}}.{{system_domain}}</title>
     {% set theme_name = ui_theme|default('opnsense') %}
 
     <!-- include (theme) style -->
-    <link href="/ui/themes/{{theme_name}}/build/css/main.css" rel="stylesheet">
+    <link href="{{ cache_safe('/ui/themes/%s/build/css/main.css' | format(theme_name)) }}" rel="stylesheet">
 
     <!-- TODO: move to theme style -->
     <style>
@@ -30,21 +30,25 @@
       }
     </style>
 
+    <!-- legacy browser functions -->
+    <script src="{{ cache_safe('/ui/js/polyfills.js') }}"></script>
+
     <!-- Favicon -->
-    <link href="/ui/themes/{{theme_name}}/build/images/favicon.png" rel="shortcut icon">
+    <link href="{{ cache_safe('/ui/themes/%s/build/images/favicon.png' | format(theme_name)) }}" rel="shortcut icon">
 
     <!-- Stylesheet for fancy select/dropdown -->
-    <link rel="stylesheet" type="text/css" href="/ui/themes/{{theme_name}}/build/css/bootstrap-select.css">
+    <link rel="stylesheet" type="text/css" href="{{ cache_safe(theme_file_or_default('/css/bootstrap-select-1.13.3.css', theme_name)) }}">
 
     <!-- bootstrap dialog -->
-    <link href="/ui/themes/{{theme_name}}/build/css/bootstrap-dialog.css" rel="stylesheet" type="text/css" />
+    <link rel="stylesheet" type="text/css" href="{{ cache_safe(theme_file_or_default('/css/bootstrap-dialog.css', theme_name)) }}">
 
     <!-- Font awesome -->
-    <link rel="stylesheet" href="/ui/css/font-awesome.min.css">
+    <link rel="stylesheet" href="{{ cache_safe('/ui/css/font-awesome.min.css') }}">
 
     <!-- JQuery -->
-    <script type="text/javascript" src="/ui/js/jquery-1.12.4.min.js"></script>
-    <script type="text/javascript">
+    <script src="/ui/js/jquery-3.2.1.min.js"></script>
+    <script src="/ui/js/jquery-migrate-3.0.1.min.js"></script>
+    <script>
             // setup default scripting after page loading.
             $( document ).ready(function() {
                 // hook into jquery ajax requests to ensure csrf handling.
@@ -58,7 +62,7 @@
                     if (request.responseJSON != undefined && request.responseJSON.errorMessage != undefined) {
                         BootstrapDialog.show({
                             type: BootstrapDialog.TYPE_DANGER,
-                            title: '{{ lang._('An API exception occured') }}',
+                            title: request.responseJSON.errorTitle,
                             message:request.responseJSON.errorMessage,
                             buttons: [{
                                 label: '{{ lang._('Close') }}',
@@ -119,7 +123,7 @@
                         $("#menu_search_box").typeahead({
                             source: menusearch_items,
                             matcher: function (item) {
-                                var ar = this.query.trim()
+                                var ar = this.query.trim();
                                 if (ar == "") {
                                     return false;
                                 }
@@ -160,17 +164,22 @@
                 });
                 // enable bootstrap tooltips
                 $('[data-toggle="tooltip"]').tooltip();
+
+                // fix menu scroll position on page load
+                $(".list-group-item.active").each(function(){
+                    var navbar_center = ($( window ).height() - $(".collapse.navbar-collapse").height())/2;
+                    $('html,aside').scrollTop(($(this).offset().top - navbar_center));
+                });
             });
         </script>
 
-
-        <!-- JQuery Tokenize (http://zellerda.com/projects/tokenize) -->
-        <script type="text/javascript" src="/ui/js/jquery.tokenize.js"></script>
-        <link rel="stylesheet" type="text/css" href="/ui/css/jquery.tokenize.css" />
+        <!-- JQuery Tokenize2 (https://zellerda.github.io/Tokenize2/) -->
+        <script src="{{ cache_safe('/ui/js/tokenize2.js') }}"></script>
+        <link rel="stylesheet" type="text/css" href="{{ cache_safe(theme_file_or_default('/css/tokenize2.css', theme_name)) }}" rel="stylesheet" />
 
         <!-- Bootgrind (grid system from http://www.jquery-bootgrid.com/ )  -->
-        <link rel="stylesheet" type="text/css" href="/ui/css/jquery.bootgrid.css"/>
-        <script type="text/javascript" src="/ui/js/jquery.bootgrid.js"></script>
+        <link rel="stylesheet" type="text/css" href="{{ cache_safe(theme_file_or_default('/css/jquery.bootgrid.css', theme_name)) }}" />
+        <script src="{{ cache_safe('/ui/js/jquery.bootgrid.js') }}"></script>
         <script>
         /* patch translations into bootgrid library */
         Object.assign(
@@ -187,23 +196,31 @@
         </script>
 
         <!-- Bootstrap type ahead -->
-        <script type="text/javascript" src="/ui/js/bootstrap3-typeahead.min.js"></script>
+        <script src="{{ cache_safe('/ui/js/bootstrap3-typeahead.min.js') }}"></script>
 
         <!-- OPNsense standard toolkit -->
-        <script type="text/javascript" src="/ui/js/opnsense.js"></script>
-        <script type="text/javascript" src="/ui/js/opnsense_ui.js"></script>
-        <script type="text/javascript" src="/ui/js/opnsense_bootgrid_plugin.js"></script>
-        {{javascript_include_when_exists('/ui/themes/' ~ theme_name ~ '/build/js/theme.js')}}
-
+        <script src="{{ cache_safe('/ui/js/opnsense.js') }}"></script>
+        <script src="{{ cache_safe('/ui/js/opnsense_theme.js') }}"></script>
+        <script src="{{ cache_safe('/ui/js/opnsense_ui.js') }}"></script>
+        <script src="{{ cache_safe('/ui/js/opnsense_bootgrid_plugin.js') }}"></script>
+        <script src="{{ cache_safe(theme_file_or_default('/js/theme.js', theme_name)) }}"></script>
   </head>
   <body>
   <header class="page-head">
-    <nav class="navbar navbar-default" role="navigation">
+    <nav class="navbar navbar-default">
       <div class="container-fluid">
         <div class="navbar-header">
           <a class="navbar-brand" href="/">
-            <img class="brand-logo" src="/ui/themes/{{theme_name}}/build/images/default-logo.png" height="30" alt="logo"/>
-            <img class="brand-icon" src="/ui/themes/{{theme_name}}/build/images/icon-logo.png" height="30" alt="icon"/>
+            {% if file_exists(["/usr/local/opnsense/www/themes/",theme_name,"/build/images/default-logo.svg"]|join("")) %}
+                <img class="brand-logo" src="{{ cache_safe('/ui/themes/%s/build/images/default-logo.svg' | format(theme_name)) }}" height="30" alt="logo"/>
+            {% else %}
+                <img class="brand-logo" src="{{ cache_safe('/ui/themes/%s/build/images/default-logo.png' | format(theme_name)) }}" height="30" alt="logo"/>
+            {% endif %}
+            {% if file_exists(["/usr/local/opnsense/www/themes/",theme_name,"/build/images/icon-logo.svg"]|join("")) %}
+                <img class="brand-icon" src="{{ cache_safe('/ui/themes/%s/build/images/icon-logo.svg' | format(theme_name)) }}" height="30" alt="icon"/>
+            {% else %}
+                <img class="brand-icon" src="{{ cache_safe('/ui/themes/%s/build/images/icon-logo.png' | format(theme_name)) }}" height="30" alt="icon"/>
+            {% endif %}
           </a>
           <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navigation">
             <span class="sr-only">{{ lang._('Toggle navigation') }}</span>
@@ -212,9 +229,12 @@
             <span class="icon-bar"></span>
           </button>
         </div>
+        <button class="toggle-sidebar" data-toggle="tooltip right" title="{{ lang._('Toggle sidebar') }}" style="display:none;"><i class="fa fa-chevron-left"></i></button>
         <div class="collapse navbar-collapse">
           <ul class="nav navbar-nav navbar-right">
-            <li id="menu_messages"><a href="#">{{session_username}}@{{system_hostname}}.{{system_domain}}</a></li>
+            <li id="menu_messages">
+              <span class="navbar-text">{{session_username}}@{{system_hostname}}.{{system_domain}}</span>
+            </li>
             <li>
               <form class="navbar-form" role="search">
                 <div class="input-group">
@@ -230,52 +250,58 @@
   </header>
 
   <main class="page-content col-sm-9 col-sm-push-3 col-lg-10 col-lg-push-2">
-
-    <!-- menu system -->
-    {{ partial("layout_partials/base_menu_system") }}
-
-    <div class="row">
-            <!-- page header -->
-      <header class="page-content-head">
-        <div class="container-fluid">
+      <!-- menu system -->
+      {{ partial("layout_partials/base_menu_system") }}
+      <div class="row">
+        <!-- page header -->
+        <header class="page-content-head">
+          <div class="container-fluid">
             <ul class="list-inline">
-              <li class="__mb"><h1>{{title | default("")}}</h1></li>
-
-              <li class="btn-group-container" id="service_status_container">
-                                <!-- placeholder for service status buttons -->
-              </li>
+              <li><h1>{{title | default("")}}</h1></li>
+              <li class="btn-group-container" id="service_status_container"></li>
             </ul>
-        </div>
-      </header>
-            <!-- page content -->
-      <section class="page-content-main">
-        <div class="container-fluid">
-          <div class="row">
-              <section class="col-xs-12">
-                  <div id="messageregion"></div>
-                      {{ content() }}
-              </section>
+          </div>
+        </header>
+        <!-- page content -->
+        <section class="page-content-main">
+          <div class="container-fluid">
+            <div class="row">
+                <section class="col-xs-12">
+                    <div id="messageregion"></div>
+                        {{ content() }}
+                </section>
+            </div>
+          </div>
+        </section>
+        <!-- page footer -->
+        <footer class="page-foot">
+          <div class="container-fluid">
+            <a target="_blank" href="{{ product_website }}">{{ product_name }}</a> (c) {{ product_copyright_years }}
+            <a target="_blank" href="{{ product_copyright_url }}">{{ product_copyright_owner }}</a>
+          </div>
+        </footer>
+      </div>
+    </main>
+
+    <!-- dialog "wait for (service) action" -->
+    <div class="modal fade" id="OPNsenseStdWaitDialog" tabindex="-1" data-backdrop="static" data-keyboard="false">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-body">
+            <p><strong>{{ lang._('Please wait...') }}</strong></p>
+            <div class="progress">
+               <div class="progress-bar progress-bar-info progress-bar-striped active" role="progressbar" aria-valuenow="100" aria-valuemin="0" aria-valuemax="100" style="width:100%"></div>
+             </div>
           </div>
         </div>
-      </section>
-
+      </div>
     </div>
 
-        <!-- page footer -->
-    <footer class="page-foot col-sm-push-3 col-lg-push-2">
-      <div class="container-fluid">
-        <a target="_blank" href="{{ product_website }}" class="redlnk">{{ product_name }}</a>
-        (c) {{ product_copyright_years }}
-        <a href="{{ product_copyright_url }}" class="tblnk">{{ product_copyright_owner }}</a>
-      </div>
-    </footer>
-
-  </main>
-
     <!-- bootstrap script -->
-  <script type="text/javascript" src="/ui/js/bootstrap.min.js"></script>
-  <script type="text/javascript" src="/ui/js/bootstrap-select.min.js"></script>
+    <script src="{{ cache_safe('/ui/js/bootstrap.min.js') }}"></script>
+    <script src="{{ cache_safe('/ui/js/bootstrap-select.min.js') }}"></script>
     <!-- bootstrap dialog -->
-    <script src="/ui/js/bootstrap-dialog.min.js"></script>
-    </body>
+    <script src="{{ cache_safe('/ui/js/bootstrap-dialog.min.js') }}"></script>
+
+  </body>
 </html>

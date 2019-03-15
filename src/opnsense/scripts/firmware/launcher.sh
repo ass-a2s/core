@@ -28,12 +28,13 @@ BASEDIR="/usr/local/opnsense/scripts/firmware"
 LOCKFILE="/tmp/pkg_upgrade.progress"
 FLOCK="/usr/local/bin/flock -n -o"
 COMMANDS="
-audit
-hotfix
+health
 install
 lock
 reinstall
 remove
+security
+type
 unlock
 upgrade
 "

@@ -25,16 +25,16 @@ ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 POSSIBILITY OF SUCH DAMAGE.
 
 #}
-<script src="/ui/js/moment-with-locales.min.js" type="text/javascript"></script>
+<script src="{{ cache_safe('/ui/js/moment-with-locales.min.js') }}"></script>
 
-<script type="text/javascript">
+<script>
 
     $( document ).ready(function() {
         /**
          * update zone list
          */
         function updateZones() {
-            ajaxGet(url="/api/captiveportal/session/zones/", sendData={}, callback=function(data, status) {
+            ajaxGet("/api/captiveportal/session/zones/", {}, function(data, status) {
                 if (status == "success") {
                     $('#cp-zones').html("");
                     $.each(data, function(key, value) {
@@ -64,22 +64,15 @@ POSSIBILITY OF SUCH DAMAGE.
                     "commands": function (column, row) {
                         return  "<button type=\"button\" class=\"btn btn-xs btn-default command-disconnect\" data-row-id=\"" + row.sessionid + "\"><span class=\"fa fa-trash-o\"></span></button>";
                     }
-                },
-                converters: {
-                    // convert datetime type fields from unix timestamp to readable format
-                    datetime: {
-                        from: function (value) { return moment(parseInt(value)*1000); },
-                        to: function (value) { return value.format("lll"); }
-                    }
                 }
             };
             $("#grid-clients").bootgrid('destroy');
-            ajaxGet(url="/api/captiveportal/session/list/"+zoneid+"/", sendData={}, callback=function(data, status) {
+            ajaxGet("/api/captiveportal/session/list/"+zoneid+"/", {}, function(data, status) {
                 if (status == "success") {
                     $("#grid-clients > tbody").html('');
                     $.each(data, function(key, value) {
                         var fields = ["sessionId", "userName", "macAddress", "ipAddress", "startTime"];
-                        tr_str = '<tr>';
+                        let tr_str = '<tr>';
                         for (var i = 0; i < fields.length; i++) {
                             if (value[fields[i]] != null) {
                                 tr_str += '<td>' + value[fields[i]] + '</td>';
@@ -98,11 +91,11 @@ POSSIBILITY OF SUCH DAMAGE.
                             stdDialogConfirm('{{ lang._('Confirm disconnect') }}',
                                 '{{ lang._('Do you want to disconnect the selected client?') }}',
                                 '{{ lang._('Yes') }}', '{{ lang._('Cancel') }}', function () {
-                                ajaxCall(url="/api/captiveportal/session/disconnect/" + zoneid + '/',
-                                        sendData={'sessionId': sessionId}, callback=function(data,status){
-                                            // reload grid after delete
-                                            loadSessions();
-                                        });
+                                ajaxCall("/api/captiveportal/session/disconnect/" + zoneid + '/',
+                                      {'sessionId': sessionId}, function(data,status){
+                                    // reload grid after delete
+                                    loadSessions();
+                                });
                             });
                         });
                     });
@@ -131,11 +124,11 @@ POSSIBILITY OF SUCH DAMAGE.
                 <thead>
                 <tr>
                     <th data-column-id="sessionid" data-type="string" data-identifier="true" data-visible="false">{{ lang._('Session') }}</th>
-                    <th data-column-id="userName" data-type="string">{{ lang._('userName') }}</th>
-                    <th data-column-id="macAddress" data-type="string" data-css-class="hidden-xs hidden-sm" data-header-css-class="hidden-xs hidden-sm">{{ lang._('macAddress') }}</th>
-                    <th data-column-id="ipAddress" data-type="string" data-css-class="hidden-xs hidden-sm" data-header-css-class="hidden-xs hidden-sm">{{ lang._('ipAddress') }}</th>
-                    <th data-column-id="startTime" data-type="datetime">{{ lang._('connected since') }}</th>
-                    <th data-column-id="commands" data-width="7em" data-formatter="commands" data-sortable="false"></th>
+                    <th data-column-id="userName" data-type="string">{{ lang._('Username') }}</th>
+                    <th data-column-id="macAddress" data-type="string" data-css-class="hidden-xs hidden-sm" data-header-css-class="hidden-xs hidden-sm">{{ lang._('MAC address') }}</th>
+                    <th data-column-id="ipAddress" data-type="string" data-css-class="hidden-xs hidden-sm" data-header-css-class="hidden-xs hidden-sm">{{ lang._('IP address') }}</th>
+                    <th data-column-id="startTime" data-type="datetime">{{ lang._('Connected since') }}</th>
+                    <th data-column-id="commands" data-width="7em" data-formatter="commands" data-sortable="false">{{ lang._('Commands') }}</th>
                 </tr>
                 </thead>
                 <tbody>

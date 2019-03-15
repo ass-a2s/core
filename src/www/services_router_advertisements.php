@@ -1,32 +1,33 @@
 <?php
 
 /*
-    Copyright (C) 2014-2016 Deciso B.V.
-    Copyright (C) 2003-2004 Manuel Kasper <mk@neon1.net>.
-    Copyright (C) 2010 Seth Mos <seth.mos@dds.nl>.
-    All rights reserved.
-
-    Redistribution and use in source and binary forms, with or without
-    modification, are permitted provided that the following conditions are met:
-
-    1. Redistributions of source code must retain the above copyright notice,
-       this list of conditions and the following disclaimer.
-
-    2. Redistributions in binary form must reproduce the above copyright
-       notice, this list of conditions and the following disclaimer in the
-       documentation and/or other materials provided with the distribution.
-
-    THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
-    INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
-    AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
-    AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
-    OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-    SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-    INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-    CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-    ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-    POSSIBILITY OF SUCH DAMAGE.
-*/
+ *  Copyright (C) 2016-2017 Franco Fichtner <franco@opnsense.org>
+ *  Copyright (C) 2014-2016 Deciso B.V.
+ *  Copyright (C) 2003-2004 Manuel Kasper <mk@neon1.net>
+ *  Copyright (C) 2010 Seth Mos <seth.mos@dds.nl>
+ *  All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
+ * AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
+ * OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ */
 
 require_once("guiconfig.inc");
 require_once("services.inc");
@@ -36,17 +37,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     if (!empty($_GET['if']) && !empty($config['interfaces'][$_GET['if']])) {
         $if = $_GET['if'];
     } else {
-        $savemsg = gettext(
-            'Router Advertisements can only be enabled on interfaces configured with static ' .
-            'IP addresses. Only interfaces configured with a static IP will be shown.'
-         );
-         foreach (legacy_config_get_interfaces(array("virtual" => false)) as $if_id => $intf) {
-             if (!empty($intf['enable']) && is_ipaddrv6($intf['ipaddrv6']) && !is_linklocal($oc['ipaddrv6'])) {
-                 $if = $if_id;
-                 break;
-             }
-         }
+        /* if no interface is provided this invoke is invalid */
+        header(url_safe('Location: /index.php'));
+        exit;
     }
+
     $pconfig = array();
     $config_copy_fieldsnames = array('ramode', 'rapriority', 'rainterface', 'ramininterval', 'ramaxinterval', 'radomainsearchlist');
     foreach ($config_copy_fieldsnames as $fieldname) {
@@ -173,7 +168,7 @@ include("head.inc");
 <body>
 <?php include("fbegin.inc"); ?>
 
-<script type="text/javascript">
+<script>
   $( document ).ready(function() {
     /**
      * Additional BOOTP/DHCP Options extenable table
@@ -210,28 +205,13 @@ include("head.inc");
         <?php if (isset($input_errors) && count($input_errors) > 0) print_input_errors($input_errors); ?>
         <?php if (isset($savemsg)) print_info_box($savemsg); ?>
         <section class="col-xs-12">
-<?php
-          /* active tabs */
-          $tab_array = array();
-          foreach (legacy_config_get_interfaces(array("virtual" => false)) as $if_id => $intf) {
-              if (!empty($intf['enable']) && is_ipaddrv6($intf['ipaddrv6'])) {
-                  $ifname = !empty($intf['descr']) ? htmlspecialchars($intf['descr']) : strtoupper($if_id);
-                  $tab_array[] = array($ifname, $if_id == $if, "services_router_advertisements.php?if={$if_id}");
-              }
-          }
-
-          display_top_tabs($tab_array);
-          ?>
           <div class="tab-content content-box col-xs-12">
             <form method="post" name="iform" id="iform">
-            <?php if (count($tab_array) == 0):?>
-            <?php print_content_box(gettext('No interfaces found with a static IPv6 address.')); ?>
-            <?php else: ?>
               <div class="table-responsive">
                 <table class="table table-striped">
                   <tr>
-                    <td width="22%"><a id="help_for_ramode" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Router Advertisements");?></td>
-                    <td width="78%">
+                    <td style="width:22%"><a id="help_for_ramode" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Router Advertisements");?></td>
+                    <td style="width:78%">
                       <select name="ramode">
                         <option value="disabled" <?=$pconfig['ramode'] == "disabled" ? "selected=\"selected\"" : ""; ?> >
                           <?=gettext("Disabled");?>
@@ -248,11 +228,15 @@ include("head.inc");
                         <option value="assist" <?=$pconfig['ramode'] == "assist" ? "selected=\"selected\"" : ""; ?> >
                           <?=gettext("Assisted");?>
                         </option>
+                        <option value="stateless" <?=$pconfig['ramode'] == "stateless" ? "selected=\"selected\"" : ""; ?> >
+                          <?=gettext("Stateless");?>
+                        </option>
                       </select>
-                      <div class="hidden" for="help_for_ramode">
-                        <strong><?= sprintf(gettext("Select the Operating Mode for the Router Advertisement (RA) Daemon."))?></strong>
-                        <?= sprintf(gettext("Use \"Router Only\" to only advertise this router, \"Unmanaged\" for Router Advertising with Stateless Autoconfig, \"Managed\" for assignment through (a) DHCPv6 Server, \"Assisted\" for DHCPv6 Server assignment combined with Stateless Autoconfig"));?>
-                        <?= sprintf(gettext("It is not required to activate this DHCPv6 server when set to \"Managed\", this can be another host on the network")); ?>
+                      <div class="hidden" data-for="help_for_ramode">
+                        <?= gettext('Select the Operating Mode for the Router Advertisement (RA) Daemon.') ?>
+                        <?= gettext('Use "Router Only" to only advertise this router, "Unmanaged" for Router Advertising with Stateless Autoconfig, ' .
+                            '"Managed" for exclusive DHCPv6 Server assignment, "Assisted" for DHCPv6 Server assignment combined with Stateless Autoconfig, ' .
+                            'or "Stateless" for Router Advertising with Statless Autoconfig and optional DHCPv6 Server queries.') ?>
                       </div>
                     </td>
                   </tr>
@@ -270,7 +254,7 @@ include("head.inc");
                           <?=gettext("High");?>
                         </option>
                       </select>
-                      <div class="hidden" for="help_for_rapriority">
+                      <div class="hidden" data-for="help_for_rapriority">
                         <?= sprintf(gettext("Select the Priority for the Router Advertisement (RA) Daemon."))?>
                       </div>
                     </td>
@@ -296,7 +280,7 @@ include("head.inc");
 <?php
                       endforeach;?>
                       </select>
-                      <div class="hidden" for="help_for_rainterface">
+                      <div class="hidden" data-for="help_for_rainterface">
                         <?= sprintf(gettext("Select the Interface for the Router Advertisement (RA) Daemon."))?>
                       </div>
                     </td>
@@ -366,7 +350,7 @@ include("head.inc");
                         endforeach ?>
                         </tbody>
                       </table>
-                      <div class="hidden" for="help_for_raroutes">
+                      <div class="hidden" data-for="help_for_raroutes">
                         <?= gettext('Routes are specified in CIDR format. The prefix of a route definition should be network prefix; it can be used to advertise more specific routes to the hosts.') ?>
                       </div>
                     </td>
@@ -376,8 +360,8 @@ include("head.inc");
                     <td>
                       <input name="radns1" type="text" value="<?=$pconfig['radns1'];?>" /><br />
                       <input name="radns2" type="text" value="<?=$pconfig['radns2'];?>" />
-                      <div class="hidden" for="help_for_radns">
-                        <?=gettext("NOTE: leave blank to use the system default DNS servers - this interface's IP if DNS forwarder is enabled, otherwise the servers configured on the General page.");?>
+                      <div class="hidden" data-for="help_for_radns">
+                        <?= gettext('Leave blank to use the system default DNS servers: This interface IP address if a DNS service is enabled or the configured global DNS servers.') ?>
                       </div>
                       <br />
                       <input id="rasamednsasdhcp6" name="rasamednsasdhcp6" type="checkbox" value="yes" <?=!empty($pconfig['rasamednsasdhcp6']) ? "checked='checked'" : "";?> />
@@ -388,7 +372,7 @@ include("head.inc");
                     <td><a id="help_for_radomainsearchlist" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Domain search list");?></td>
                     <td>
                       <input name="radomainsearchlist" type="text" id="radomainsearchlist" size="28" value="<?=$pconfig['radomainsearchlist'];?>" />
-                      <div class="hidden" for="help_for_radomainsearchlist">
+                      <div class="hidden" data-for="help_for_radomainsearchlist">
                         <?=gettext("The RA server can optionally provide a domain search list. Use the semicolon character as separator");?>
                       </div>
                     </td>
@@ -397,7 +381,7 @@ include("head.inc");
                     <td><a id="help_for_rasend" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext('RA Sending') ?></td>
                     <td>
                       <input id="rasend" name="rasend" type="checkbox" value="yes" <?= !empty($pconfig['rasend']) ? 'checked="checked"' : '' ?>/>
-                      <div class="hidden" for="help_for_rasend">
+                      <div class="hidden" data-for="help_for_rasend">
                         <?= gettext('Enable the periodic sending of router advertisements and responding to router solicitations.') ?>
                       </div>
                     </td>
@@ -406,7 +390,7 @@ include("head.inc");
                     <td><a id="help_for_ramininterval" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?= gettext('Minimum Interval') ?></td>
                     <td>
                       <input name="ramininterval" type="text" id="ramininterval" size="28" value="<?=$pconfig['ramininterval'];?>" />
-                      <div class="hidden" for="help_for_ramininterval">
+                      <div class="hidden" data-for="help_for_ramininterval">
                         <?= gettext('The minimum time allowed between sending unsolicited multicast router advertisements from the interface, in seconds.') ?>
                       </div>
                     </td>
@@ -415,7 +399,7 @@ include("head.inc");
                     <td><a id="help_for_ramaxinterval" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?= gettext('Maximum Interval') ?></td>
                     <td>
                       <input name="ramaxinterval" type="text" id="ramaxinterval" size="28" value="<?=$pconfig['ramaxinterval'];?>" />
-                      <div class="hidden" for="help_for_ramaxinterval">
+                      <div class="hidden" data-for="help_for_ramaxinterval">
                         <?= gettext('The maximum time allowed between sending unsolicited multicast router advertisements from the interface, in seconds.') ?>
                       </div>
                     </td>
@@ -424,13 +408,11 @@ include("head.inc");
                     <td>&nbsp;</td>
                     <td>
                       <input name="if" type="hidden" value="<?=$if;?>" />
-                      <input name="Submit" type="submit" class="formbtn btn btn-primary" value="<?=gettext("Save");?>" />
+                      <input name="Submit" type="submit" class="formbtn btn btn-primary" value="<?=html_safe(gettext('Save'));?>" />
                     </td>
                   </tr>
                 </table>
               </div>
-<?php
-            endif;?>
             </form>
           </div>
         </section>

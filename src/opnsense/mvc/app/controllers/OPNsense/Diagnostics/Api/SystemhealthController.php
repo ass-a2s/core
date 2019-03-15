@@ -1,29 +1,29 @@
 <?php
 
-/**
- *    Copyright (C) 2015 Jos Schellevis <jos@opnsense.org>
- *    All rights reserved.
+/*
+ * Copyright (C) 2015 Jos Schellevis <jos@opnsense.org>
+ * All rights reserved.
  *
- *    Redistribution and use in source and binary forms, with or without
- *    modification, are permitted provided that the following conditions are met:
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
  *
- *    1. Redistributions of source code must retain the above copyright notice,
- *       this list of conditions and the following disclaimer.
+ * 1. Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer.
  *
- *    2. Redistributions in binary form must reproduce the above copyright
- *       notice, this list of conditions and the following disclaimer in the
- *       documentation and/or other materials provided with the distribution.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
  *
- *    THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
- *    INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
- *    AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
- *    AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
- *    OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- *    SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- *    INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- *    CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- *    ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- *    POSSIBILITY OF SUCH DAMAGE.
+ * THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
+ * AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
+ * OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
  */
 
 namespace OPNsense\Diagnostics\Api;
@@ -33,7 +33,7 @@ use \OPNsense\Core\Backend;
 use \OPNsense\Core\Config;
 
 /**
- * Class ServiceController
+ * Class SystemhealthController
  * @package OPNsense\SystemHealth
  */
 class SystemhealthController extends ApiControllerBase
@@ -84,18 +84,13 @@ class SystemhealthController extends ApiControllerBase
     {
 
         $rowNumber = 0;
-        $containsValues = false; // used to break foreach on first row with collected data
 
         foreach ($data->database->row as $item => $row) {
             foreach ($row as $rowKey => $rowVal) {
                 if (trim($rowVal) != "NaN") {
-                    $containsValues = true;
+                    break 2;
                 }
             }
-            if ($containsValues == true) {
-                break;
-            }
-            $rowNumber++;
         }
 
         return $rowNumber;
@@ -126,9 +121,7 @@ class SystemhealthController extends ApiControllerBase
      */
     private function getSelection($rra_info, $from_timestamp, $to_timestamp, $max_values)
     {
-        $full_range = false;
         if ($from_timestamp == 0 && $to_timestamp == 0) {
-            $full_range = true;
             $from_timestamp = $this->getMaxRange($rra_info)["oldest_timestamp"];
             $to_timestamp = $this->getMaxRange($rra_info)["newest_timestamp"];
         }
@@ -143,22 +136,16 @@ class SystemhealthController extends ApiControllerBase
                 $rowCount = ($to_timestamp - $from_timestamp) / $value['full_step'] + 1;
 
                 // factor to be used to compress the data.
-                // example if 2 then 2 values will be used to calculate one data point.
-                $condense_factor = round($rowCount / $max_values);
+                // example if 2 then 2 values will be used to calculate one data point, minimum 1 (don't condense).
+                $condense_factor = round($rowCount / $max_values) < 1 ? 1 : round($rowCount / $max_values);
 
-                if ($condense_factor == 0) { // if rounded to 0 we will not condense the data
-                    $condense_factor = 1; // and thus return the full set of data points
-                }
                 // actual number of rows after compressing/condensing the dataSet
                 $condensed_rowCount = (int)($rowCount / $condense_factor);
 
                 // count the number if rra's (sets), deduct 1 as we need the counter to start at 0
                 $last_rra_key = count($rra_info) - 1;
 
-                // dynamic (condensed) values for full overview to detail level
-                $overview = round($rra_info[$last_rra_key]["available_rows"] / (int)$max_values);
-
-                if ($full_range == false) { // JSC WIP removed: && count($rra_info)==1  // add detail when selected
+                if ($from_timestamp == 0 && $to_timestamp == 0) { // add detail when selected
                     array_push($archives, [
                         "key" => $key,
                         "condensed_rowCount" => $condensed_rowCount,
@@ -183,6 +170,9 @@ class SystemhealthController extends ApiControllerBase
                         break;
                     }
                 }
+
+                // dynamic (condensed) values for full overview to detail level
+                $overview = round($rra_info[$last_rra_key]["available_rows"] / (int)$max_values);
                 if ($overview != 0) {
                     $condensed_rowCount = (int)($rra_info[$last_rra_key]["available_rows"] / $overview);
                 } else {
@@ -199,7 +189,9 @@ class SystemhealthController extends ApiControllerBase
             }
         }
 
-        return (["from" => $from_timestamp, "to" => $to_timestamp, "full_range" => $full_range, "data" => $archives]);
+        return (["from" => $from_timestamp, "to" => $to_timestamp,
+                 "full_range" => ($from_timestamp == 0 && $to_timestamp == 0),
+                 "data" => $archives]);
     }
 
     /**
@@ -275,13 +267,12 @@ class SystemhealthController extends ApiControllerBase
                 } else {
                     $nan = false; // Not a NaN value, so add to list
                 }
-                if ($applyInverse == true) {
-                    $check_value = $key / 2; // every odd row gets data inversed (* -1)
-                    if ($check_value != (int)$check_value) {
+                if ($value != "NaN" && $applyInverse) {
+                    if ($key % 2 != 0) {
                         $value = $value * -1;
                     }
                 }
-                if ($nan == false) {
+                if (!$nan) {
                     if ($from_timestamp == 0 || $timestamp < $from_timestamp) {
                         $from_timestamp = $timestamp; // Actual from_timestamp after condensing and cleaning data
                     }
@@ -458,7 +449,7 @@ class SystemhealthController extends ApiControllerBase
         # Source of data: xml fields of corresponding .xml metadata
         $result = array();
         $backend = new Backend();
-        $response = $backend->configdpRun("systemhealth list");
+        $response = $backend->configdRun('systemhealth list');
         $healthList = json_decode($response, true);
         // search by topic and name, return array with filename
         if (is_array($healthList)) {
@@ -488,7 +479,7 @@ class SystemhealthController extends ApiControllerBase
         # Source of data: filelisting of /var/db/rrd/*.rrd
         $result = array();
         $backend = new Backend();
-        $response = $backend->configdpRun("systemhealth list");
+        $response = $backend->configdRun('systemhealth list');
         $healthList = json_decode($response, true);
 
         $result['data'] = array();
@@ -538,7 +529,7 @@ class SystemhealthController extends ApiControllerBase
         $xml = false;
         if ($rrd_details['filename'] != "") {
             $backend = new Backend();
-            $response = $backend->configdpRun("systemhealth fetch ", array($rrd_details['filename']));
+            $response = $backend->configdpRun('systemhealth fetch', array($rrd_details['filename']));
             if ($response != null) {
                 $xml = @simplexml_load_string($response);
             }

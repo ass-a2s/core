@@ -1,7 +1,7 @@
 #!/usr/local/bin/python2.7
 
 """
-    Copyright (c) 2015 Ad Schellevis <ad@opnsense.org>
+    Copyright (c) 2015-2018 Ad Schellevis <ad@opnsense.org>
     All rights reserved.
 
     Redistribution and use in source and binary forms, with or without
@@ -27,11 +27,12 @@
 
     --------------------------------------------------------------------------------------
 
-    update suricata rules
+    update/download suricata rules
 """
 
 import os
 import sys
+import syslog
 import fcntl
 from ConfigParser import ConfigParser
 from lib import metadata
@@ -50,6 +51,7 @@ if __name__ == '__main__':
     # load list of configured rules from generated config
     enabled_rulefiles = dict()
     rule_properties = dict()
+    metadata_sources = dict()
     updater_conf = '/usr/local/etc/suricata/rule-updater.config'
     if os.path.exists(updater_conf):
         cnf = ConfigParser()
@@ -71,20 +73,40 @@ if __name__ == '__main__':
     md = metadata.Metadata()
     dl = downloader.Downloader(target_dir=rule_source_directory)
     for rule in md.list_rules(rule_properties):
+        if rule['metadata_source'] not in metadata_sources:
+            metadata_sources[rule['metadata_source']] = 0
         if 'url' in rule['source']:
-            download_proto = str(rule['source']['url']).split(':')[0].lower()
-            if dl.is_supported(download_proto):
+            if dl.is_supported(url=rule['source']['url']):
+                if rule['required'] and metadata_sources[rule['metadata_source']] > 0:
+                    # Required files are always sorted last in list_rules(), add required when there's at least one
+                    # file selected from the metadata package.
+                    enabled_rulefiles[rule['filename']] = {'filter': ''}
                 if rule['filename'] not in enabled_rulefiles:
-                    try:
-                        # remove configurable but unselected file
-                        os.remove(('%s/%s' % (rule_source_directory, rule['filename'])).replace('//', '/'))
-                    except OSError:
-                        pass
+                    full_path = ('%s/%s' % (rule_source_directory, rule['filename'])).replace('//', '/')
+                    if os.path.isfile(full_path):
+                        os.remove(full_path)
                 else:
                     input_filter = enabled_rulefiles[rule['filename']]['filter']
                     if ('username' in rule['source'] and 'password' in rule['source']):
                         auth = (rule['source']['username'], rule['source']['password'])
                     else:
                         auth = None
-                    dl.download(proto=download_proto, url=rule['url'], url_filename=rule['url_filename'],
-                                filename=rule['filename'], input_filter=input_filter, auth=auth)
+                    # when metadata supports versioning, check if either version or settings changed before download
+                    remote_hash = dl.fetch_version_hash(check_url=rule['version_url'], input_filter=input_filter,
+                                                        auth=auth, headers=rule['http_headers'])
+                    local_hash = dl.installed_file_hash(rule['filename'])
+                    if remote_hash is None or remote_hash != local_hash:
+                        dl.download(url=rule['url'], url_filename=rule['url_filename'],
+                                    filename=rule['filename'], input_filter=input_filter, auth=auth,
+                                    headers=rule['http_headers'], version=remote_hash)
+                        # count number of downloaded files/rules from this metadata package
+                        metadata_sources[rule['metadata_source']] += 1
+                    else:
+                        syslog.syslog(syslog.LOG_INFO, 'download skipped %s, same version' % rule['filename'])
+
+    # cleanup: match all installed rulesets against the configured ones and remove uninstalled rules
+    md_filenames = map(lambda x:x['filename'], md.list_rules(rule_properties))
+    for filename in enabled_rulefiles:
+        full_path = ('%s/%s' % (rule_source_directory, filename)).replace('//', '/')
+        if filename not in md_filenames and os.path.isfile(full_path):
+            os.remove(full_path)

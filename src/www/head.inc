@@ -34,18 +34,18 @@ $pagetitle .= html_safe(sprintf(' | %s.%s', $config['system']['hostname'], $conf
 <!--[if (gt IE 9)|!(IE)]><!--><html lang="<?=system_get_language_code();?>" class="no-js"><!--<![endif]-->
   <head>
     <meta charset="UTF-8" />
-    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
 
     <meta name="robots" content="noindex, nofollow, noodp, noydir" />
     <meta name="keywords" content="" />
     <meta name="description" content="" />
     <meta name="copyright" content="" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1" />
 
     <title><?= $pagetitle ?></title>
 
     <!-- include (theme) style -->
-    <link href="/ui/themes/<?= $themename ?>/build/css/main.css" rel="stylesheet">
+    <link href="<?= cache_safe("/ui/themes/{$themename}/build/css/main.css") ?>" rel="stylesheet">
 
     <!-- TODO: move to theme style -->
     <style>
@@ -78,50 +78,54 @@ $pagetitle .= html_safe(sprintf(' | %s.%s', $config['system']['hostname'], $conf
     </style>
 
     <!-- Favicon -->
-    <link href="/ui/themes/<?= $themename ?>/build/images/favicon.png" rel="shortcut icon">
+    <link href="<?= cache_safe("/ui/themes/{$themename}/build/images/favicon.png") ?>" rel="shortcut icon">
+
+    <!-- legacy browser functions -->
+    <script src="<?= cache_safe("/ui/js/polyfills.js") ?>"></script>
 
     <!-- Stylesheet for fancy select/dropdown -->
-    <link rel="stylesheet" type="text/css" href="/ui/themes/<?= $themename ?>/build/css/bootstrap-select.css">
+    <link rel="stylesheet" type="text/css" href="<?= cache_safe(get_themed_filename("/css/bootstrap-select-1.13.3.css")) ?>">
 
     <!-- bootstrap dialog -->
-    <link href="/ui/themes/<?= $themename ?>/build/css/bootstrap-dialog.css" rel="stylesheet" type="text/css" />
+    <link rel="stylesheet" type="text/css" href="<?= cache_safe(get_themed_filename("/css/bootstrap-dialog.css")) ?>">
 
     <!-- Font awesome -->
-    <link rel="stylesheet" href="/ui/css/font-awesome.min.css">
+    <link rel="stylesheet" href="<?= cache_safe("/ui/css/font-awesome.min.css") ?>">
 
     <!--[if lt IE 9]><script src="//cdnjs.cloudflare.com/ajax/libs/html5shiv/3.7.2/html5shiv.min.js"></script><![endif]-->
 
     <!-- nvd3 -->
-    <link rel="stylesheet" href="/ui/css/nv.d3.css">
+    <link rel="stylesheet" type="text/css" href="<?= cache_safe(get_themed_filename("/css/nv.d3.css")) ?>">
 
     <!-- datepicker css -->
-    <link  href="/ui/css/bootstrap-datepicker3.min.css" rel="stylesheet">
+    <link rel="stylesheet" type="text/css" href="<?= cache_safe(get_themed_filename("/css/bootstrap-datepicker3.min.css")) ?>">
 
     <!-- JQuery -->
-    <script type="text/javascript" src="/ui/js/jquery-1.12.4.min.js"></script>
-
-    <!-- Ticker used for notices-->
-    <script type="text/javascript" src="/javascript/ticker.js"></script>
+    <script src="/ui/js/jquery-3.2.1.min.js"></script>
+    <script src="/ui/js/jquery-migrate-3.0.1.min.js"></script>
 
     <!-- datepicker -->
-    <script src="/ui/js/bootstrap-datepicker.min.js"></script>
+    <script src="<?= cache_safe("/ui/js/bootstrap-datepicker.min.js") ?>"></script>
 
     <!-- d3 -->
-    <script type="text/javascript" src="/ui/js/d3.min.js"></script>
+    <script src="<?= cache_safe("/ui/js/d3.min.js") ?>"></script>
 
     <!-- nvd3 -->
-    <script type="text/javascript" src="/ui/js/nv.d3.min.js"></script>
+    <script src="<?= cache_safe("/ui/js/nv.d3.min.js") ?>"></script>
 
     <!-- append some helper functions to integrate into the legacy code -->
-    <script type="text/javascript" src="/javascript/opnsense_legacy.js"></script>
+    <script src="<?= cache_safe("/javascript/opnsense_legacy.js") ?>"></script>
 
     <!-- opnsense non legacy helper functions -->
-    <script type="text/javascript" src="/ui/js/opnsense.js"></script>
+    <script src="<?= cache_safe("/ui/js/opnsense.js") ?>"></script>
+
+    <!-- opnsense non legacy theme support functions -->
+    <script src="<?= cache_safe("/ui/js/opnsense_theme.js") ?>"></script>
 
     <!-- Bootstrap type ahead -->
-    <script type="text/javascript" src="/ui/js/bootstrap3-typeahead.min.js"></script>
+    <script src="<?= cache_safe("/ui/js/bootstrap3-typeahead.min.js") ?>"></script>
 
-    <script type="text/javascript">
+    <script>
     //<![CDATA[
     $( document ).ready(function() {
       $('[data-toggle="tooltip"]').tooltip();
@@ -144,7 +148,7 @@ $pagetitle .= html_safe(sprintf(' | %s.%s', $config['system']['hostname'], $conf
 
       // link showhelp class behavior
       $("a[class='showhelp']").click(function (event) {
-        $("*[for='" + $(this).attr('id') + "']").toggleClass("hidden show");
+        $("*[data-for='" + $(this).attr('id') + "']").toggleClass("hidden show");
         event.preventDefault();
       });
 
@@ -153,14 +157,27 @@ $pagetitle .= html_safe(sprintf(' | %s.%s', $config['system']['hostname'], $conf
         $('[id*="show_all_help"]').toggleClass("fa-toggle-on fa-toggle-off");
         $('[id*="show_all_help"]').toggleClass("text-success text-danger");
         if ($('[id*="show_all_help"]').hasClass("fa-toggle-on")) {
-          $('[for*="help_for"]').addClass("show");
-          $('[for*="help_for"]').removeClass("hidden");
+          if (window.sessionStorage) {
+            sessionStorage.setItem('all_help_preset', 1);
+          }
+          $('[data-for*="help_for"]').addClass("show");
+          $('[data-for*="help_for"]').removeClass("hidden");
         } else {
-          $('[for*="help_for"]').addClass("hidden");
-          $('[for*="help_for"]').removeClass("show");
+          if (window.sessionStorage) {
+            sessionStorage.setItem('all_help_preset', 0);
+          }
+          $('[data-for*="help_for"]').addClass("hidden");
+          $('[data-for*="help_for"]').removeClass("show");
         }
         event.preventDefault();
       });
+      if (window.sessionStorage && sessionStorage.getItem('all_help_preset') == 1) {
+          // show all help messages when preset was stored
+          $('[id*="show_all_help"]').toggleClass("fa-toggle-on fa-toggle-off");
+          $('[id*="show_all_help"]').toggleClass("text-success text-danger");
+          $('[data-for*="help_for"]').addClass("show");
+          $('[data-for*="help_for"]').removeClass("hidden");
+      }
 
       // hide submenu items
       $('#mainmenu .list-group-item').click(function(){
@@ -171,6 +188,11 @@ $pagetitle .= html_safe(sprintf(' | %s.%s', $config['system']['hostname'], $conf
                 }
             });
         }
+      });
+
+      $(".list-group-item.active").each(function(){
+          var navbar_center = ($( window ).height() - $(".collapse.navbar-collapse").height())/2;
+          $('html,aside').scrollTop(($(this).offset().top - navbar_center));
       });
 
       // hook in live menu search
@@ -192,7 +214,7 @@ $pagetitle .= html_safe(sprintf(' | %s.%s', $config['system']['hostname'], $conf
               $("#menu_search_box").typeahead({
                   source: menusearch_items,
                   matcher: function (item) {
-                      var ar = this.query.trim()
+                      var ar = this.query.trim();
                       if (ar == "") {
                           return false;
                       }
@@ -235,9 +257,7 @@ $pagetitle .= html_safe(sprintf(' | %s.%s', $config['system']['hostname'], $conf
     });
     //]]>
     </script>
-<?php
-    if (file_exists("/usr/local/opnsense/www/themes/".$themename."/build/js/theme.js")):?>
-    <script type="text/javascript" src="/ui/themes/<?=$themename?>/build/js/theme.js"></script>
-<?php
-    endif;?>
+<?php if (file_exists("/usr/local/opnsense/www/themes/{$themename}/build/js/theme.js")): ?>
+    <script src="<?= cache_safe("/ui/themes/{$themename}/build/js/theme.js") ?>"></script>
+<?php endif ?>
 </head>

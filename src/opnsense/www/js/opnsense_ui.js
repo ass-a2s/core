@@ -55,7 +55,7 @@
 function saveFormToEndpoint(url,formid,callback_ok, disable_dialog) {
     disable_dialog = disable_dialog || false;
     var data = getFormData(formid);
-    ajaxCall(url=url,sendData=data,callback=function(data,status){
+    ajaxCall(url,data,function(data,status){
         if ( status == "success") {
             // update field validation
             handleFormValidation(formid,data['validations']);
@@ -90,7 +90,7 @@ function saveFormToEndpoint(url,formid,callback_ok, disable_dialog) {
                 }
             } else if ( callback_ok != undefined ) {
                 // execute callback function
-                callback_ok();
+                callback_ok(data);
             }
         }
     });
@@ -113,7 +113,7 @@ function mapDataToFormUI(data_get_map) {
 
     var collected_data = {};
     $.each(data_get_map, function(data_index, data_url) {
-        ajaxGet(url=data_url,sendData={}, callback=function(data, status) {
+        ajaxGet(data_url,{}, function(data, status) {
             if (status == "success") {
                 $("form").each(function( index ) {
                     if ( $(this).attr('id') && $(this).attr('id').split('-')[0] == data_index) {
@@ -136,54 +136,132 @@ function mapDataToFormUI(data_get_map) {
 /**
  * update service status buttons in user interface
  */
-function updateServiceStatusUI(status) {
-
-    var status_html = '<span class="glyphicon glyphicon-play btn ';
+function updateServiceStatusUI(status)
+{
+    var status_html = '<span class="label label-opnsense label-opnsense-sm ';
 
     if (status == "running") {
-        status_html += 'btn-success' ;
+        status_html += 'label-success';
     } else if (status == "stopped") {
-        status_html += 'btn-danger' ;
+        status_html += 'label-danger';
+    } else {
+        status_html += 'hidden';
     }
 
-    status_html += '"></span>';
+    status_html += '"><i class="fa fa-play fa-fw"/></span>';
 
     $('#service_status_container').html(status_html);
 }
 
 /**
+ * operate service status buttons in user interface
+ */
+function updateServiceControlUI(serviceName)
+{
+    ajaxCall("/api/" + serviceName + "/service/status", {}, function(data,status) {
+        var status_html = '<span class="label label-opnsense label-opnsense-sm ';
+        var status_icon = '';
+        var buttons = '';
+
+        if (data['status'] == "running") {
+            status_html += 'label-success';
+            status_icon = 'play';
+            buttons += '<span id="restartService" class="btn btn-sm btn-default"><i class="fa fa-refresh fa-fw"></i></span> ';
+            buttons += '<span id="stopService" class="btn btn-sm btn-default"><i class="fa fa-stop fa-fw"></span>';
+        } else if (data['status'] == "stopped") {
+            status_html += 'label-danger';
+            status_icon = 'stop';
+            buttons += '<span id="startService" class="btn btn-sm btn-default"><i class="fa fa-play fa-fw"></i></span>';
+        } else {
+            status_html += 'hidden';
+        }
+
+        status_html += '"><i class="fa fa-' + status_icon + ' fa-fw"/></span>';
+
+        $('#service_status_container').html(status_html + " " + buttons);
+
+        var commands = ["start", "restart", "stop"];
+        commands.forEach(function(command) {
+            $("#" + command + "Service").click(function(){
+                $('#OPNsenseStdWaitDialog').modal('show');
+                ajaxCall("/api/" + serviceName + "/service/" + command, {},function(data,status) {
+                    $('#OPNsenseStdWaitDialog').modal('hide');
+                    ajaxCall("/api/" + serviceName + "/service/status", {}, function(data,status) {
+                        updateServiceControlUI(serviceName);
+                    });
+                });
+            });
+        });
+    });
+}
+
+/**
  * reformat all tokenizers on this document
  */
-function formatTokenizersUI(){
-    // remove old tokenizers (if any)
-    $('div[class="tokenize Tokenize"]').each(function(){
-        $(this).remove();
-    });
-    $('select[class="tokenize"]').each(function(){
-        if ($(this).prop("size")==0) {
-            maxDropdownHeight=String(36*5)+"px"; // default number of items
+function formatTokenizersUI() {
+    $('select.tokenize').each(function () {
+        var sender = $(this);
+        if (!sender.hasClass('tokenize2_init_done')) {
+            // only init tokenize2 when not bound yet
+            var hint = $(this).data("hint");
+            var width = $(this).data("width");
+            if (sender.data("size") != undefined) {
+                var number_of_items = $(this).data("size");
+            } else {
+                var number_of_items = 10;
+            }
+            sender.tokenize2({
+                'tokensAllowCustom': $(this).data("allownew"),
+                'placeholder': hint,
+                'sortable': $(this).data('sortable') == true,
+                'dropdownMaxItems': number_of_items
+            });
+            sender.parent().find('ul.tokens-container').css("width", width);
 
+            // dropdown on focus (previous displayDropdownOnFocus)
+            sender.on('tokenize:select', function(container){
+                $(this).tokenize2().trigger('tokenize:search', [$(this).tokenize2().input.val()]);
+            });
+            // bind add / remove events
+            sender.on('tokenize:tokens:add', function(e, value){
+                sender.trigger("tokenize:tokens:change");
+            });
+            sender.on('tokenize:tokens:remove', function(e, value){
+                sender.trigger("tokenize:tokens:change");
+            });
+
+            // hook keydown -> tab to blur event
+            sender.on('tokenize:deselect', function(){
+                var e = $.Event("keydown");
+                e.keyCode = 9;
+                sender.tokenize2().trigger('tokenize:keydown', [e]);
+            });
+
+            sender.addClass('tokenize2_init_done');
         } else {
-            number_of_items = $(this).prop("size");
-            maxDropdownHeight=String(36*number_of_items)+"px";
-        }
-        hint=$(this).data("hint");
-        width=$(this).data("width");
-        allownew=$(this).data("allownew");
-        nbDropdownElements=$(this).data("nbdropdownelements");
-        maxTokenContainerHeight=$(this).data("maxheight");
+            // unbind change event while loading initial content
+            sender.unbind('tokenize:tokens:change');
 
-        $(this).tokenize({
-            displayDropdownOnFocus: true,
-            newElements: allownew,
-            nbDropdownElements: nbDropdownElements,
-            placeholder:hint
-        });
-        $(this).parent().find('ul[class="TokensContainer"]').parent().css("width",width);
-        $(this).parent().find('ul[class="Dropdown"]').css("max-height", maxDropdownHeight);
-        if ( maxDropdownHeight != undefined ) {
-            $(this).parent().find('ul[class="TokensContainer"]').css("max-height", maxTokenContainerHeight);
+            // selected items
+            var items = [];
+            sender.find('option:selected').each(function () {
+                items.push([$(this).val(), $(this).text()]);
+            });
+
+            // re-init tokenizer items
+            sender.tokenize2().trigger('tokenize:clear');
+            for (let i=0 ; i < items.length ; ++i) {
+              sender.tokenize2().trigger('tokenize:tokens:add', items[i]);
+            }
+            sender.tokenize2().trigger('tokenize:select');
+            sender.tokenize2().trigger('tokenize:dropdown:hide');
         }
+
+        // propagate token changes to parent change()
+        sender.on('tokenize:tokens:change', function(e, value){
+            sender.change();
+        });
+
     });
 }
 
@@ -193,7 +271,7 @@ function formatTokenizersUI(){
 function addMultiSelectClearUI() {
     $('[id*="clear-options"]').each(function() {
         $(this).click(function() {
-            var id = $(this).attr("for");
+            var id = $(this).attr("id").replace(/_*clear-options_*/, '');
             BootstrapDialog.confirm({
                 title: 'Deselect or remove all items ?',
                 message: 'Deselect or remove all items ?',
@@ -207,10 +285,14 @@ function addMultiSelectClearUI() {
                     if(result) {
                         if ($('select[id="' + id + '"]').hasClass("tokenize")) {
                             // trigger close on all Tokens
-                            $('select[id="' + id + '"]').parent().find('ul[class="TokensContainer"]').find('li[class="Token"]').find('a').trigger("click");
+                            $('select[id="' + id + '"]').tokenize2().trigger('tokenize:clear');
+                            $('select[id="' + id + '"]').change();
                         } else {
                             // remove options from selection
                             $('select[id="' + id + '"]').find('option').prop('selected',false);
+                            if ($('select[id="' + id + '"]').hasClass('selectpicker')) {
+                               $('select[id="' + id + '"]').selectpicker('refresh');
+                            }
                         }
                     }
                     // In case this modal was triggered from another modal, fix focus issues
@@ -226,13 +308,14 @@ function addMultiSelectClearUI() {
     });
 }
 
+
 /**
  * setup form help buttons
  */
 function initFormHelpUI() {
     // handle help messages show/hide
-    $("a[class='showhelp']").click(function (event) {
-        $("*[for='" + $(this).attr('id') + "']").toggleClass("hidden show");
+    $("a.showhelp").click(function (event) {
+        $("*[data-for='" + $(this).attr('id') + "']").toggleClass("hidden show");
         event.preventDefault();
     });
 
@@ -241,31 +324,57 @@ function initFormHelpUI() {
         $('[id*="show_all_help"]').toggleClass("fa-toggle-on fa-toggle-off");
         $('[id*="show_all_help"]').toggleClass("text-success text-danger");
         if ($('[id*="show_all_help"]').hasClass("fa-toggle-on")) {
-            $('[for*="help_for"]').addClass("show");
-            $('[for*="help_for"]').removeClass("hidden");
+            if (window.sessionStorage) {
+                sessionStorage.setItem('all_help_preset', 1);
+            }
+            $('[data-for*="help_for"]').addClass("show");
+            $('[data-for*="help_for"]').removeClass("hidden");
         } else {
-            $('[for*="help_for"]').addClass("hidden");
-            $('[for*="help_for"]').removeClass("show");
+            $('[data-for*="help_for"]').addClass("hidden");
+            $('[data-for*="help_for"]').removeClass("show");
+            if (window.sessionStorage) {
+                sessionStorage.setItem('all_help_preset', 0);
+            }
         }
         event.preventDefault();
     });
+    if (window.sessionStorage && sessionStorage.getItem('all_help_preset') == 1) {
+        // show all help messages when preset was stored
+        $('[id*="show_all_help"]').toggleClass("fa-toggle-on fa-toggle-off");
+        $('[id*="show_all_help"]').toggleClass("text-success text-danger");
+        $('[data-for*="help_for"]').addClass("show");
+        $('[data-for*="help_for"]').removeClass("hidden");
+    }
 }
 
 /**
  * handle advanced show/hide
  */
 function initFormAdvancedUI() {
-    $('[data-advanced*="true"]').hide(function(){
-        $('[data-advanced*="true"]').after("<tr data-advanced='hidden_row'></tr>"); // the table row is added to keep correct table striping
-    });
+    if (window.sessionStorage && sessionStorage.getItem('show_advanced_preset') == 1) {
+        // show advanced options when preset was stored
+        $('[id*="show_advanced"]').toggleClass("fa-toggle-on fa-toggle-off");
+        $('[id*="show_advanced"]').toggleClass("text-success text-danger");
+    } else {
+        $('[data-advanced*="true"]').hide(function(){
+            $('[data-advanced*="true"]').after("<tr data-advanced='hidden_row'></tr>"); // the table row is added to keep correct table striping
+        });
+    }
+
     $('[id*="show_advanced"]').click(function() {
         $('[id*="show_advanced"]').toggleClass("fa-toggle-on fa-toggle-off");
         $('[id*="show_advanced"]').toggleClass("text-success text-danger");
         if ($('[id*="show_advanced"]').hasClass("fa-toggle-on")) {
             $('[data-advanced*="true"]').show();
             $('[data-advanced*="hidden_row"]').remove(); // the table row is deleted to keep correct table striping
+            if (window.sessionStorage) {
+                sessionStorage.setItem('show_advanced_preset', 1);
+            }
         } else {
             $('[data-advanced*="true"]').after("<tr data-advanced='hidden_row'></tr>").hide(); // the table row is added to keep correct table striping
+            if (window.sessionStorage) {
+                sessionStorage.setItem('show_advanced_preset', 0);
+            }
         }
     });
 }
@@ -273,7 +382,7 @@ function initFormAdvancedUI() {
 /**
  * standard dialog when information is required, wrapper around BootstrapDialog
  */
-function stdDialogInform(title, message, close, callback, type) {
+function stdDialogInform(title, message, close, callback, type, cssClass) {
      var types = {
          "danger": BootstrapDialog.TYPE_DANGER,
          "default": BootstrapDialog.TYPE_DEFAULT,
@@ -285,9 +394,13 @@ function stdDialogInform(title, message, close, callback, type) {
     if (!(type in types)) {
         type = 'info';
     }
+    if (cssClass == undefined) {
+        cssClass = '';
+    }
     BootstrapDialog.show({
         title: title,
         message: message,
+        cssClass: cssClass,
         type: types[type],
         buttons: [{
             label: close,

@@ -32,7 +32,7 @@ require_once("interfaces.inc");
 require_once("services.inc");
 require_once("plugins.inc.d/ipsec.inc");
 
-config_read_aray('ipsec', 'mobilekey');
+config_read_array('ipsec', 'mobilekey');
 ipsec_mobilekey_sort();
 
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
@@ -111,7 +111,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     }
 }
 
-$service_hook = 'ipsec';
+$service_hook = 'strongswan';
 
 legacy_html_escape_form_data($pconfig);
 
@@ -138,7 +138,7 @@ include("head.inc");
                     <td><a id="help_for_ident" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Identifier"); ?></td>
                     <td>
                       <input name="ident" type="text" class="formfld unknown" id="ident" size="30" value="<?=$pconfig['ident'];?>" />
-                      <div class="hidden" for="help_for_ident">
+                      <div class="hidden" data-for="help_for_ident">
                         <?=gettext("This can be either an IP address, fully qualified domain name or an email address."); ?>
                       </div>
                     </td>
@@ -161,7 +161,7 @@ include("head.inc");
                   <tr>
                     <td>&nbsp;</td>
                     <td>
-                      <input name="Submit" type="submit" class="btn btn-primary" value="<?=gettext("Save"); ?>" />
+                      <input name="Submit" type="submit" class="btn btn-primary" value="<?=html_safe(gettext('Save')); ?>" />
 <?php                 if (isset($id) && isset($config['ipsec']['mobilekey'][$id])) :
 ?>
                       <input name="id" type="hidden" value="<?=htmlspecialchars($id);?>" />

@@ -1,0 +1,58 @@
+<model>
+    <mount>//OPNsense/Firewall/Alias</mount>
+    <version>1.0.0</version>
+    <description>
+        Firewall aliases
+    </description>
+    <items>
+        <aliases>
+            <alias type="ArrayField">
+                <enabled type="BooleanField">
+                    <default>1</default>
+                    <Required>Y</Required>
+                </enabled>
+                <name type=".\AliasNameField">
+                    <Required>Y</Required>
+                    <Constraints>
+                        <check001>
+                            <ValidationMessage>An alias with this name already exists.</ValidationMessage>
+                            <type>UniqueConstraint</type>
+                        </check001>
+                    </Constraints>
+                </name>
+                <type type="OptionField">
+                    <Required>Y</Required>
+                    <default>alert</default>
+                    <OptionValues>
+                        <host>Host(s)</host>
+                        <network>Network(s)</network>
+                        <port>Port(s)</port>
+                        <url>URL (IPs)</url>
+                        <urltable>URL Table (IPs)</urltable>
+                        <geoip>GeoIP</geoip>
+                        <external>External (advanced)</external>
+                    </OptionValues>
+                </type>
+                <proto type="OptionField">
+                    <Multiple>Y</Multiple>
+                    <OptionValues>
+                        <IPv4>IPv4</IPv4>
+                        <IPv6>IPv6</IPv6>
+                    </OptionValues>
+                </proto>
+                <counters type="BooleanField">
+                    <default>0</default>
+                </counters>
+                <updatefreq type="NumericField">
+                    <ValidationMessage>Days and hours should be numeric values or left empty</ValidationMessage>
+                </updatefreq>
+                <content type=".\AliasContentField"/>
+                <description type="TextField">
+                    <Required>N</Required>
+                    <mask>/^(.){1,255}$/u</mask>
+                    <ValidationMessage>Description should be a string between 1 and 255 characters</ValidationMessage>
+                </description>
+            </alias>
+        </aliases>
+    </items>
+</model>

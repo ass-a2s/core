@@ -1,30 +1,30 @@
 <?php
 
 /*
-    Copyright (C) 2016 Deciso B.V.
-    All rights reserved.
-
-    Redistribution and use in source and binary forms, with or without
-    modification, are permitted provided that the following conditions are met:
-
-    1. Redistributions of source code must retain the above copyright notice,
-       this list of conditions and the following disclaimer.
-
-    2. Redistributions in binary form must reproduce the above copyright
-       notice, this list of conditions and the following disclaimer in the
-       documentation and/or other materials provided with the distribution.
-
-    THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
-    INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
-    AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
-    AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
-    OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-    SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-    INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-    CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-    ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-    POSSIBILITY OF SUCH DAMAGE.
-*/
+ * Copyright (C) 2016 Deciso B.V.
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
+ * AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
+ * OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ */
 
 require_once("guiconfig.inc");
 require_once("filter.inc");
@@ -112,11 +112,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         exit;
     }
 }
+
 legacy_html_escape_form_data($a_scrub);
+
 include("head.inc");
+
+$main_buttons = array(
+    array('href'=>'firewall_scrub_edit.php', 'label'=>gettext('Add')),
+);
+
 ?>
 <body>
-<script type="text/javascript">
+<script>
 $( document ).ready(function() {
   // link delete buttons
   $(".act_delete").click(function(event){
@@ -223,10 +230,10 @@ $( document ).ready(function() {
                 <table class="table table-striped table-hover opnsense_standard_table_form">
                   <thead>
                     <tr>
-                      <td width="22%"><strong><?=gettext("General settings");?></strong></td>
-                      <td  width="78%" align="right">
+                      <td style="width:22%"><strong><?=gettext("General settings");?></strong></td>
+                      <td style="width:78%; text-align:right">
                            <small><?=gettext("full help"); ?> </small>
-                           <i class="fa fa-toggle-off text-danger"  style="cursor: pointer;" id="show_all_help_page" type="button">&nbsp;</i>
+                           <i class="fa fa-toggle-off text-danger"  style="cursor: pointer;" id="show_all_help_page">&nbsp;</i>
                       </td>
                     </tr>
                   </thead>
@@ -235,7 +242,7 @@ $( document ).ready(function() {
                       <td><a id="help_for_scrub_interface_disable" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Disable interface scrub");?></td>
                       <td>
                         <input id="scrub_interface_disable" name="scrub_interface_disable" type="checkbox" value="yes" <?=!empty($pconfig['scrub_interface_disable']) ? "checked=\"checked\"" : "";?> />
-                        <div class="hidden" for="help_for_scrub_interface_disable">
+                        <div class="hidden" data-for="help_for_scrub_interface_disable">
                           <?=gettext("Disable all default interface scrubing rules,".
                                      " mss clamping will also be disabled when you check this.".
                                      " Detailed settings specified below will still be used.");?>
@@ -246,7 +253,7 @@ $( document ).ready(function() {
                       <td><a id="help_for_scrubnodf" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("IP Do-Not-Fragment");?></td>
                       <td>
                         <input name="scrubnodf" type="checkbox" value="yes" <?=!empty($pconfig['scrubnodf']) ? "checked=\"checked\"" : ""; ?>/>
-                        <div class="hidden" for="help_for_scrubnodf">
+                        <div class="hidden" data-for="help_for_scrubnodf">
                           <?=gettext("This allows for communications with hosts that generate fragmented " .
                                               "packets with the don't fragment (DF) bit set. Linux NFS is known to " .
                                               "do this. This will cause the filter to not drop such packets but " .
@@ -258,7 +265,7 @@ $( document ).ready(function() {
                       <td><a id="help_for_scrubrnid" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("IP Random id");?></td>
                       <td>
                         <input name="scrubrnid" type="checkbox" value="yes" <?= !empty($pconfig['scrubrnid']) ? "checked=\"checked\"" : "";?> />
-                        <div class="hidden" for="help_for_scrubrnid">
+                        <div class="hidden" data-for="help_for_scrubrnid">
                           <?=gettext("Replaces the IP identification field of packets with random values to " .
                                               "compensate for operating systems that use predictable values. " .
                                               "This option only applies to packets that are not fragmented after the " .
@@ -269,7 +276,7 @@ $( document ).ready(function() {
                     <tr>
                       <td></td>
                       <td>
-                          <input name="Submit" id="save" type="submit" class="btn btn-primary" value="<?=gettext("Save");?>" />
+                          <input name="Submit" id="save" type="submit" class="btn btn-primary" value="<?=html_safe(gettext('Save'));?>" />
                       </td>
                     </tr>
                     </tbody>
@@ -304,20 +311,20 @@ $( document ).ready(function() {
                   <tr>
                     <td>
                         <input class="rule_select" type="checkbox" name="rule[]" value="<?=$i;?>"  />
-                        <a href="#" class="act_toggle" data-id="<?=$i;?>" data-toggle="tooltip" title="<?=(empty($scrubEntry['disabled'])) ? gettext("disable") : gettext("enable");?>">
-                          <span class="glyphicon glyphicon-play <?=(empty($scrubEntry['disabled'])) ? "text-success" : "text-muted";?>"></span>
+                        <a href="#" class="act_toggle" data-id="<?=$i;?>" data-toggle="tooltip" data-html="true" title="<?=(empty($scrubEntry['disabled'])) ? gettext("Disable") : gettext("Enable");?>">
+                          <span class="fa fa-play fa-fw <?=(empty($scrubEntry['disabled'])) ? "text-success" : "text-muted";?>"></span>
                         </a>
                     </td>
                     <td><?=strtoupper($scrubEntry['interface']);?></td>
                     <td class="hidden-xs hidden-sm">
 <?php
                         if (is_alias($scrubEntry['src'])):?>
-                        <span title="<?=htmlspecialchars(get_alias_description($scrubEntry['src']));?>" data-toggle="tooltip">
+                        <span title="<?=htmlspecialchars(get_alias_description($scrubEntry['src']));?>" data-toggle="tooltip" data-html="true">
                           <?=$scrubEntry['src'];?>&nbsp;
                         </span>
-                        <a href="/firewall_aliases_edit.php?name=<?=$scrubEntry['src'];?>"
+                        <a href="/ui/firewall/alias/index/<?=$scrubEntry['src'];?>"
                             title="<?=gettext("edit alias");?>" data-toggle="tooltip">
-                          <i class="fa fa-list"></i>
+                          <i class="fa fa-list fa-fw"></i>
                         </a>
 <?php
                         elseif (!empty($special_nets[$scrubEntry['src']])):?>
@@ -332,12 +339,12 @@ $( document ).ready(function() {
                     <td class="hidden-xs hidden-sm">
 <?php
                         if (is_alias($scrubEntry['dst'])):?>
-                        <span title="<?=htmlspecialchars(get_alias_description($scrubEntry['dst']));?>" data-toggle="tooltip">
+                        <span title="<?=htmlspecialchars(get_alias_description($scrubEntry['dst']));?>" data-toggle="tooltip" data-html="true">
                           <?=$scrubEntry['dst'];?>&nbsp;
                         </span>
-                        <a href="/firewall_aliases_edit.php?name=<?=$scrubEntry['dst'];?>"
+                        <a href="/ui/firewall/alias/index/<?=$scrubEntry['dst'];?>"
                             title="<?=gettext("edit alias");?>" data-toggle="tooltip">
-                          <i class="fa fa-list"></i>
+                          <i class="fa fa-list fa-fw"></i>
                         </a>
 <?php
                         elseif (!empty($special_nets[$scrubEntry['dst']])):?>
@@ -353,17 +360,17 @@ $( document ).ready(function() {
                         <?=$scrubEntry['descr'];?>
                     </td>
                     <td>
-                        <a href="firewall_scrub_edit.php?id=<?=$i;?>" data-toggle="tooltip" title="<?=gettext("edit rule");?>" class="btn btn-default btn-xs">
-                          <span class="glyphicon glyphicon-pencil"></span>
+                        <a data-id="<?=$i;?>" name="move_<?=$i;?>_x" data-toggle="tooltip" title="<?= html_safe(gettext("Move selected rules before this rule")) ?>" class="act_move btn btn-default btn-xs">
+                          <span class="fa fa-arrow-left fa-fw"></span>
                         </a>
-                        <a data-id="<?=$i;?>" name="move_<?=$i;?>_x" data-toggle="tooltip" title="<?=gettext("move selected rules before this rule");?>" class="act_move btn btn-default btn-xs">
-                          <span class="glyphicon glyphicon-arrow-left"></span>
+                        <a href="firewall_scrub_edit.php?id=<?=$i;?>" data-toggle="tooltip" title="<?= html_safe(gettext('Edit')) ?>" class="btn btn-default btn-xs">
+                          <span class="fa fa-pencil fa-fw"></span>
                         </a>
-                        <a data-id="<?=$i;?>" title="<?=gettext("delete rule"); ?>" data-toggle="tooltip"  class="act_delete btn btn-default btn-xs">
-                          <span class="fa fa-trash text-muted"></span>
+                        <a data-id="<?=$i;?>" title="<?= html_safe(gettext('Delete')) ?>" data-toggle="tooltip"  class="act_delete btn btn-default btn-xs">
+                          <span class="fa fa-trash fa-fw"></span>
                         </a>
-                        <a href="firewall_scrub_edit.php?dup=<?=$i;?>" class="btn btn-default btn-xs" data-toggle="tooltip" title="<?=gettext("clone rule");?>">
-                          <span class="fa fa-clone text-muted"></span>
+                        <a href="firewall_scrub_edit.php?dup=<?=$i;?>" class="btn btn-default btn-xs" data-toggle="tooltip" title="<?= html_safe(gettext('Clone')) ?>">
+                          <span class="fa fa-clone fa-fw"></span>
                         </a>
                     </td>
                   </tr>
@@ -373,23 +380,18 @@ $( document ).ready(function() {
                 </tbody>
                 <tfoot>
                     <tr>
+                      <td colspan="3">
+                        <a><i class="fa fa-list fa-fw"></i></a> <?=gettext("Alias (click to view/edit)");?>
+                      </td>
                       <td colspan="2" class="hidden-xs hidden-sm"></td>
-                      <td colspan="3"></td>
                       <td>
-                        <a id="move_<?=$i;?>" name="move_<?=$i;?>_x" data-toggle="tooltip" title="<?=gettext("move selected rules to end");?>" class="act_move btn btn-default btn-xs">
-                          <span class="glyphicon glyphicon-arrow-left"></span>
+                        <a id="move_<?=$i;?>" name="move_<?=$i;?>_x" data-toggle="tooltip" title="<?= html_safe(gettext("Move selected rules to end")) ?>" class="act_move btn btn-default btn-xs">
+                          <span class="fa fa-arrow-left fa-fw"></span>
                         </a>
-                        <a data-id="x" title="<?=gettext("delete selected rules"); ?>" data-toggle="tooltip"  class="act_delete btn btn-default btn-xs">
-                          <span class="fa fa-trash text-muted"></span>
-                        </a>
-                        <a href="firewall_scrub_edit.php" class="btn btn-default btn-xs" data-toggle="tooltip" title="<?=gettext("add new rule");?>">
-                          <span class="glyphicon glyphicon-plus"></span>
+                        <a data-id="x" title="<?= html_safe(gettext("delete selected rules")) ?>" data-toggle="tooltip"  class="act_delete btn btn-default btn-xs">
+                          <span class="fa fa-trash fa-fw"></span>
                         </a>
                       </td>
-                    </tr>
-                    <tr class="hidden-xs hidden-sm">
-                        <td><a><i class="fa fa-list"></i></a></td>
-                        <td colspan="5"><?=gettext("Alias (click to view/edit)");?></td>
                     </tr>
                 </tfoot>
               </table>
@@ -400,4 +402,6 @@ $( document ).ready(function() {
     </div>
   </div>
 </section>
-<?php include("foot.inc"); ?>
+<?php
+
+include("foot.inc");

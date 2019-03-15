@@ -44,7 +44,7 @@ include("head.inc");
 ?>
 <body>
 <?php include("fbegin.inc"); ?>
-<script type="text/javascript">
+<script>
 $( document ).ready(function() {
   function getpfinfo() {
     jQuery.ajax({
@@ -83,7 +83,7 @@ $( document ).ready(function() {
 <?php
             endforeach;?>
           </ul>
-          <div class="tab-content content-box tab-content">
+          <div class="tab-content content-box">
 <?php
              foreach($data_tabs as $i => $tabname):?>
             <div id="<?=$tabname;?>" class="tab-pane fade in <?= $i == 0 ? 'active' : '';?>">
@@ -93,7 +93,7 @@ $( document ).ready(function() {
                 <?=gettext("Gathering PF information, please wait...");?>
                 </pre>
               </div>
-              </br>
+              <br/>
             </div>
 <?php
             endforeach;?>

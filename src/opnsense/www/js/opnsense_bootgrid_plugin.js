@@ -47,6 +47,12 @@ function stdBootgridUI(obj, sourceUrl, options) {
                     "<button type=\"button\" class=\"btn btn-xs btn-default command-copy\" data-row-id=\"" + row.uuid + "\"><span class=\"fa fa-clone\"></span></button>" +
                     "<button type=\"button\" class=\"btn btn-xs btn-default command-delete\" data-row-id=\"" + row.uuid + "\"><span class=\"fa fa-trash-o\"></span></button>";
             },
+            "commandsWithInfo": function(column, row) {
+                return "<button type=\"button\" class=\"btn btn-xs btn-default command-info\" data-row-id=\"" + row.uuid + "\"><span class=\"fa fa-info-circle\"></span></button> " +
+                    "<button type=\"button\" class=\"btn btn-xs btn-default command-edit\" data-row-id=\"" + row.uuid + "\"><span class=\"fa fa-pencil\"></span></button>" +
+                    "<button type=\"button\" class=\"btn btn-xs btn-default command-copy\" data-row-id=\"" + row.uuid + "\"><span class=\"fa fa-clone\"></span></button>" +
+                    "<button type=\"button\" class=\"btn btn-xs btn-default command-delete\" data-row-id=\"" + row.uuid + "\"><span class=\"fa fa-trash-o\"></span></button>";
+            },
             "rowtoggle": function (column, row) {
                 if (parseInt(row[column.id], 2) == 1) {
                     return "<span style=\"cursor: pointer;\" class=\"fa fa-check-square-o command-toggle\" data-value=\"1\" data-row-id=\"" + row.uuid + "\"></span>";
@@ -76,16 +82,20 @@ function stdBootgridUI(obj, sourceUrl, options) {
     {
         // scale footer on resize
         $(this).find("tfoot td:first-child").attr('colspan',$(this).find("th").length - 1);
-        $(this).find('tr[data-row-id]').each(function(){
-            if ($(this).find('[class*="command-toggle"]').first().data("value") == "0") {
-                $(this).addClass("text-muted");
-            }
-            if ($(this).find('[class*="command-boolean"]').first().data("value") == "0") {
-                $(this).addClass("text-muted");
-            }
+        // invert colors if needed (check if there is a disabled field instead of an enabled field
+        var inverted = $(this).find("thead th[data-column-id=disabled]").length > 0;
+        $(this).find('tr[data-row-id]').each(function(index, entry){
+            ['[class*="command-toggle"]', '[class*="command-boolean"]'].forEach(function (selector) {
+                var selected_element = $(entry).find(selector).first();
+                if (selected_element.length > 0) {
+                    if ((selected_element.data("value") == "0") != inverted ) {
+                        $(entry).addClass("text-muted");
+                    }
+                }
+            });
         });
 
-    })
+    });
 
     return grid;
 }
@@ -116,6 +126,7 @@ function std_bootgrid_reload(gridId) {
  *  set     : url to set data action (POST) will be suffixed by uuid
  *  add     : url to create a new data record (POST)
  *  del     : url to del item action (POST) will be suffixed by uuid
+ *  info    : url to get data action that will be displayed informationally suffixed by the uuid
  *
  * @param params
  * @returns {*}
@@ -135,6 +146,25 @@ $.fn.UIBootgrid = function (params) {
 
                 // link edit and delete event buttons
                 grid.on("loaded.rs.jquery.bootgrid", function(){
+
+                    // info item
+                    grid.find(".command-info").on("click", function(e) {
+                        if(gridParams['info'] != undefined) {
+                            var uuid=$(this).data("row-id");
+                            ajaxGet(gridParams['info'] + uuid,
+                                {}, function(data, status) {
+                                    if(status == 'success') {
+                                        var title = data['title'] || "Information";
+                                        var message = data['message'] || "A Message";
+                                        var close = data['close'] || "Close";
+                                        stdDialogInform(title, message, close, undefined, "info");
+                                    }
+                                });
+                        } else {
+                            console.log("[grid] action info missing");
+                        }
+                    }).end();
+
                     // edit item
                     grid.find(".command-edit").on("click", function(e)
                     {
@@ -154,8 +184,8 @@ $.fn.UIBootgrid = function (params) {
                                 // define save action
                                 $("#btn_"+editDlg+"_save").unbind('click').click(function(){
                                     if (gridParams['set'] != undefined) {
-                                        saveFormToEndpoint(url=gridParams['set']+uuid,
-                                            formid='frm_' + editDlg, callback_ok=function(){
+                                        saveFormToEndpoint(gridParams['set']+uuid,
+                                            'frm_' + editDlg, function(){
                                                 $("#"+editDlg).modal('hide');
                                                 std_bootgrid_reload(gridId);
                                             }, true);
@@ -163,6 +193,7 @@ $.fn.UIBootgrid = function (params) {
                                         console.log("[grid] action set missing")
                                     }
                                 });
+                                $('#'+editDlg).trigger('opnsense_bootgrid_mapped', ['edit']);
                             });
                         } else {
                             console.log("[grid] action get or data-editDialog missing")
@@ -188,8 +219,8 @@ $.fn.UIBootgrid = function (params) {
                                 // define save action
                                 $("#btn_"+editDlg+"_save").unbind('click').click(function(){
                                     if (gridParams['add'] != undefined) {
-                                        saveFormToEndpoint(url=gridParams['add'],
-                                            formid='frm_' + editDlg, callback_ok=function(){
+                                        saveFormToEndpoint(gridParams['add'],
+                                            'frm_' + editDlg, function(){
                                                 $("#"+editDlg).modal('hide');
                                                 std_bootgrid_reload(gridId);
                                             }, true);
@@ -197,6 +228,7 @@ $.fn.UIBootgrid = function (params) {
                                         console.log("[grid] action add missing")
                                     }
                                 });
+                                $('#'+editDlg).trigger('opnsense_bootgrid_mapped', ['copy']);
                             });
                         } else {
                             console.log("[grid] action get or data-editDialog missing")
@@ -211,10 +243,10 @@ $.fn.UIBootgrid = function (params) {
                             var uuid=$(this).data("row-id");
                             // XXX must be replaced, cannot translate
                             stdDialogRemoveItem('Remove selected item?',function() {
-                                ajaxCall(url=gridParams['del'] + uuid,
-                                    sendData={},callback=function(data,status){
+                                ajaxCall(gridParams['del'] + uuid,
+                                    {},function(data,status){
                                         // reload grid after delete
-                                        $("#"+gridId).bootgrid("reload");
+                                        std_bootgrid_reload(gridId);
                                     });
                             });
                         } else {
@@ -228,8 +260,8 @@ $.fn.UIBootgrid = function (params) {
                         if (gridParams['toggle'] != undefined) {
                             var uuid=$(this).data("row-id");
                             $(this).addClass("fa-spinner fa-pulse");
-                            ajaxCall(url=gridParams['toggle'] + uuid,
-                                sendData={},callback=function(data,status){
+                            ajaxCall(gridParams['toggle'] + uuid,
+                                {},function(data,status){
                                     // reload grid after delete
                                     std_bootgrid_reload(gridId);
                                 });
@@ -250,16 +282,17 @@ $.fn.UIBootgrid = function (params) {
                             $('.selectpicker').selectpicker('refresh');
                             // clear validation errors (if any)
                             clearFormValidation('frm_' + editDlg);
+                            $('#'+editDlg).trigger('opnsense_bootgrid_mapped', ['add']);
                         });
 
                         // show dialog for edit
                         $('#'+editDlg).modal({backdrop: 'static', keyboard: false});
                         //
                         $("#btn_"+editDlg+"_save").unbind('click').click(function(){
-                            saveFormToEndpoint(url=gridParams['add'],
-                                formid='frm_' + editDlg, callback_ok=function(){
+                            saveFormToEndpoint(gridParams['add'],
+                                'frm_' + editDlg, function(){
                                     $("#"+editDlg).modal('hide');
-                                    $("#"+gridId).bootgrid("reload");
+                                    std_bootgrid_reload(gridId);
                                 }, true);
                         });
                     }  else {
@@ -276,7 +309,7 @@ $.fn.UIBootgrid = function (params) {
                             if (rows != undefined){
                                 var deferreds = [];
                                 $.each(rows, function(key,uuid){
-                                    deferreds.push(ajaxCall(url=gridParams['del'] + uuid, sendData={},null));
+                                    deferreds.push(ajaxCall(gridParams['del'] + uuid, {},null));
                                 });
                                 // refresh after load
                                 $.when.apply(null, deferreds).done(function(){

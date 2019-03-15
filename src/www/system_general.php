@@ -1,31 +1,31 @@
 <?php
 
 /*
-    Copyright (C) 2014-2015 Deciso B.V.
-    Copyright (C) 2003-2004 Manuel Kasper <mk@neon1.net>
-    All rights reserved.
-
-    Redistribution and use in source and binary forms, with or without
-    modification, are permitted provided that the following conditions are met:
-
-    1. Redistributions of source code must retain the above copyright notice,
-       this list of conditions and the following disclaimer.
-
-    2. Redistributions in binary form must reproduce the above copyright
-       notice, this list of conditions and the following disclaimer in the
-       documentation and/or other materials provided with the distribution.
-
-    THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
-    INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
-    AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
-    AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
-    OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-    SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-    INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-    CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-    ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-    POSSIBILITY OF SUCH DAMAGE.
-*/
+ * Copyright (C) 2014-2015 Deciso B.V.
+ * Copyright (C) 2003-2004 Manuel Kasper <mk@neon1.net>
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
+ * AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
+ * OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ */
 
 require_once("guiconfig.inc");
 require_once("filter.inc");
@@ -40,12 +40,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         $savemsg = htmlspecialchars(gettext($_GET['savemsg']));
     }
 
-    $pconfig['theme'] = null;
-    $pconfig['language'] = null;
-    $pconfig['timezone'] = 'Etc/UTC';
-    $pconfig['prefer_ipv4'] = isset($config['system']['prefer_ipv4']);
-    $pconfig['hostname'] = $config['system']['hostname'];
+    $pconfig['dnsallowoverride'] = isset($config['system']['dnsallowoverride']);
+    $pconfig['dnslocalhost'] = isset($config['system']['dnslocalhost']);
     $pconfig['domain'] = $config['system']['domain'];
+    $pconfig['hostname'] = $config['system']['hostname'];
+    $pconfig['language'] = $config['system']['language'];
+    $pconfig['prefer_ipv4'] = isset($config['system']['prefer_ipv4']);
+    $pconfig['theme'] = $config['theme'];
+    $pconfig['timezone'] = empty($config['system']['timezone']) ? 'Etc/UTC' : $config['system']['timezone'];
+
+    $pconfig['gw_switch_default'] = isset($config['system']['gw_switch_default']);
+    $pconfig['gw_switch_group4'] = isset($config['system']['gw_switch_group4']) ? $config['system']['gw_switch_group4'] : null;
+    $pconfig['gw_switch_group6'] = isset($config['system']['gw_switch_group6']) ? $config['system']['gw_switch_group6'] : null;
 
     for ($dnscounter = 1; $dnscounter < 9; $dnscounter++) {
         $dnsname = "dns{$dnscounter}";
@@ -54,16 +60,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         $dnsgwname= "dns{$dnscounter}gw";
         $pconfig[$dnsgwname] = !empty($config['system'][$dnsgwname]) ? $config['system'][$dnsgwname] : 'none';
     }
-
-    $pconfig['dnsallowoverride'] = isset($config['system']['dnsallowoverride']);
-    $pconfig['timezone'] = $config['system']['timezone'];
-    if (isset($config['theme'])) {
-        $pconfig['theme'] = $config['theme'];
-    }
-    if (isset($config['system']['language'])) {
-        $pconfig['language'] = $config['system']['language'];
-    }
-    $pconfig['dnslocalhost'] = isset($config['system']['dnslocalhost']);
 } elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $input_errors = array();
     $pconfig = $_POST;
@@ -88,7 +84,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
       $dnsgwname="dns{$dnscounter}gw";
       if (!empty($pconfig[$dnsname]) && !is_ipaddr($pconfig[$dnsname])) {
         $input_errors[] = gettext("A valid IP address must be specified for DNS server $dnscounter.");
-      } elseif(!empty($pconfig[$dnsgwname]) && $pconfig[$dnsgwname] <> "none") {
+      } elseif (!empty($pconfig[$dnsgwname]) && $pconfig[$dnsgwname] != 'none') {
             // A real gateway has been selected.
             if (is_ipaddr($pconfig[$dnsname])) {
                 if ((is_ipaddrv4($pconfig[$dnsname])) && (validate_address_family($pconfig[$dnsname], $pconfig[$dnsgwname]) === false )) {
@@ -103,15 +99,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
             }
       }
     }
-    /* XXX cranky low-level call, please refactor */
-    $direct_networks_list = explode(' ', filter_get_direct_networks_list(filter_generate_optcfg_array()));
+    /* collect direct attached networks and static routes */
+    $direct_networks_list = array();
+    foreach (legacy_interfaces_details() as $ifname => $ifcnf) {
+        foreach ($ifcnf['ipv4'] as $addr) {
+            $direct_networks_list[] = gen_subnet($addr['ipaddr'], $addr['subnetbits']) . "/{$addr['subnetbits']}";
+        }
+        foreach ($ifcnf['ipv6'] as $addr) {
+            $direct_networks_list[] = gen_subnetv6($addr['ipaddr'], $addr['subnetbits']) . "/{$addr['subnetbits']}";
+        }
+    }
+    foreach (get_staticroutes() as $netent) {
+        $direct_networks_list[] = $netent['network'];
+    }
+
     for ($dnscounter = 1; $dnscounter < 9; $dnscounter++) {
         $dnsitem = "dns{$dnscounter}";
         $dnsgwitem = "dns{$dnscounter}gw";
         if (!empty($pconfig[$dnsgwitem])) {
-            if(interface_has_gateway($pconfig[$dnsgwitem])) {
-                foreach($direct_networks_list as $direct_network) {
-                    if(ip_in_subnet($_POST[$dnsitem], $direct_network)) {
+            if (interface_has_gateway($pconfig[$dnsgwitem])) {
+                foreach ($direct_networks_list as $direct_network) {
+                    if (ip_in_subnet($_POST[$dnsitem], $direct_network)) {
                         $input_errors[] = sprintf(gettext("You can not assign a gateway to DNS '%s' server which is on a directly connected network."),$pconfig[$dnsitem]);
                     }
                 }
@@ -120,14 +128,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     }
 
     if (count($input_errors) == 0) {
-        $config['system']['hostname'] = $pconfig['hostname'];
         $config['system']['domain'] = $pconfig['domain'];
+        $config['system']['hostname'] = $pconfig['hostname'];
+        $config['system']['language'] = $pconfig['language'];
         $config['system']['timezone'] = $pconfig['timezone'];
         $config['theme'] =  $pconfig['theme'];
-
-        if (!empty($pconfig['language']) && $pconfig['language'] != $config['system']['language']) {
-            $config['system']['language'] = $pconfig['language'];
-        }
 
         if (!empty($pconfig['prefer_ipv4'])) {
             $config['system']['prefer_ipv4'] = true;
@@ -135,12 +140,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
             unset($config['system']['prefer_ipv4']);
         }
 
-        $config['system']['dnsallowoverride'] = !empty($pconfig['dnsallowoverride']);
+        if (!empty($pconfig['dnsallowoverride'])) {
+            $config['system']['dnsallowoverride'] = true;
+        } elseif (isset($config['system']['dnsallowoverride'])) {
+            unset($config['system']['dnsallowoverride']);
+        }
 
-        if($pconfig['dnslocalhost'] == "yes") {
-          $config['system']['dnslocalhost'] = true;
+        if ($pconfig['dnslocalhost'] == 'yes') {
+            $config['system']['dnslocalhost'] = true;
         } elseif (isset($config['system']['dnslocalhost'])) {
             unset($config['system']['dnslocalhost']);
+        }
+
+        if (!empty($pconfig['gw_switch_default'])) {
+            $config['system']['gw_switch_default'] = true;
+        } elseif (isset($config['system']['gw_switch_default'])) {
+            unset($config['system']['gw_switch_default']);
+        }
+
+        if (!empty($pconfig['gw_switch_group4'])) {
+            $config['system']['gw_switch_group4'] = $pconfig['gw_switch_group4'];
+        } elseif (isset($config['system']['gw_switch_group4'])) {
+            unset($config['system']['gw_switch_group4']);
+        }
+
+        if (!empty($pconfig['gw_switch_group6'])) {
+            $config['system']['gw_switch_group6'] = $pconfig['gw_switch_group6'];
+        } elseif (isset($config['system']['gw_switch_group6'])) {
+            unset($config['system']['gw_switch_group6']);
         }
 
         $olddnsservers = $config['system']['dnsserver'];
@@ -150,7 +177,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         for ($dnscounter = 1; $dnscounter < 9; $dnscounter++) {
             $dnsname="dns{$dnscounter}";
             $dnsgwname="dns{$dnscounter}gw";
-            $olddnsgwname = !empty($config['system'][$dnsgwname]) ? $config['system'][$dnsgwname] : "none" ;
+            $olddnsgwname = !empty($config['system'][$dnsgwname]) ? $config['system'][$dnsgwname] : 'none';
 
             if (!empty($pconfig[$dnsname])) {
                 $config['system']['dnsserver'][] = $pconfig[$dnsname];
@@ -175,7 +202,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
                 $outdnsname="dns{$outdnscounter}";
                 $outdnsgwname="dns{$outdnscounter}gw";
                 $pconfig[$outdnsname] = $_POST[$dnsname];
-                if(!empty($_POST[$dnsgwname])) {
+                if (!empty($_POST[$dnsgwname])) {
                     $config['system'][$outdnsgwname] = $thisdnsgwname;
                     $pconfig[$outdnsgwname] = $thisdnsgwname;
                 } else {
@@ -211,7 +238,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         services_dhcpd_configure();
         filter_configure();
 
-        header(url_safe('Location: /system_general.php?savemsg=%s', array(get_std_save_message(true))));
+        header(url_safe('Location: /system_general.php?savemsg=%s', array('The changes have been applied successfully.')));
         exit;
     }
 }
@@ -237,24 +264,22 @@ include("head.inc");
     }
 ?>
     <section class="col-xs-12">
-      <div class="content-box tab-content">
-        <form method="post">
+      <form method="post">
+        <div class="content-box tab-content __mb">
           <table class="table table-striped opnsense_standard_table_form">
             <tr>
-              <td width="22%"><strong><?=gettext("System");?></strong></td>
-              <td  width="78%" align="right">
+              <td style="width:22%"><strong><?= gettext('System') ?></strong></td>
+              <td style="width:78%; text-align:right">
                 <small><?=gettext("full help"); ?> </small>
-                <i class="fa fa-toggle-off text-danger"  style="cursor: pointer;" id="show_all_help_page" type="button"></i>
+                <i class="fa fa-toggle-off text-danger"  style="cursor: pointer;" id="show_all_help_page"></i>
               </td>
             </tr>
             <tr>
               <td><a id="help_for_hostname" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Hostname"); ?></td>
               <td>
                 <input name="hostname" type="text" size="40" value="<?=$pconfig['hostname'];?>" />
-                <div class="hidden" for="help_for_hostname">
+                <div class="hidden" data-for="help_for_hostname">
                   <?=gettext("Name of the firewall host, without domain part"); ?>
-                  <br />
-                  <?=gettext("e.g."); ?> <em><?=gettext("firewall");?></em>
                 </div>
               </td>
             </tr>
@@ -262,7 +287,7 @@ include("head.inc");
               <td><a id="help_for_domain" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Domain"); ?></td>
               <td>
                 <input name="domain" type="text" value="<?=$pconfig['domain'];?>" />
-                <div class="hidden" for="help_for_domain">
+                <div class="hidden" data-for="help_for_domain">
                   <?=gettext("Do not use 'local' as a domain name. It will cause local hosts running mDNS (avahi, bonjour, etc.) to be unable to resolve local hosts not running mDNS."); ?>
                   <br />
                   <?=sprintf(gettext("e.g. %smycorp.com, home, office, private, etc.%s"),'<em>','</em>') ?>
@@ -281,7 +306,7 @@ include("head.inc");
 <?php
                   endforeach; ?>
                 </select>
-                <div class="hidden" for="help_for_timezone">
+                <div class="hidden" data-for="help_for_timezone">
                   <?=gettext("Select the location closest to you"); ?>
                 </div>
               </td>
@@ -289,50 +314,52 @@ include("head.inc");
             <tr>
               <td><a id="help_for_language" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Language");?></td>
               <td>
-                <select name="language" class="selectpicker" data-size="10" data-style="btn-default" data-width="auto">
+                <select name="language" class="selectpicker" data-style="btn-default">
 <?php
                   foreach (get_locale_list() as $lcode => $ldesc):?>
-                  <option value="<?=$lcode;?>" <?=$lcode == $pconfig['language'] ? "selected=\"selected\"" : "";?>>
+                  <option value="<?=$lcode;?>" <?= $lcode == $pconfig['language'] ? 'selected="selected"' : '' ?>>
                     <?=$ldesc;?>
                   </option>
 <?php
                   endforeach;?>
                 </select>
-                <div class="hidden" for="help_for_language">
-                  <strong>
-                    <?= gettext('Choose a language for the web GUI.') ?>
-                  </strong>
+                <div class="hidden" data-for="help_for_language">
+                  <?= gettext('Choose a language for the web GUI.') ?>
                 </div>
               </td>
             </tr>
             <tr>
               <td><a id="help_for_theme" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Theme"); ?></td>
               <td>
-                <select name="theme" class="selectpicker" data-size="10" data-width="auto">
+                <select name="theme" class="selectpicker">
 <?php
-                  foreach (return_dir_as_array('/usr/local/opnsense/www/themes/') as $file):?>
+                foreach (glob('/usr/local/opnsense/www/themes/*', GLOB_ONLYDIR) as $file):
+                  $file = basename($file);?>
                   <option <?= $file == $pconfig['theme'] ? 'selected="selected"' : '' ?>>
                     <?=$file;?>
                   </option>
 <?php
-                  endforeach; ?>
+                endforeach; ?>
                 </select>
-                <div class="hidden" for="help_for_theme">
-                  <strong>
-                    <?= gettext('This will change the look and feel of the GUI.') ?>
-                  </strong>
+                <div class="hidden" data-for="help_for_theme">
+                  <?= gettext('This will change the look and feel of the GUI.') ?>
                 </div>
               </td>
             </tr>
+          </table>
+        </div>
+        <div class="content-box tab-content __mb">
+          <table class="table table-striped opnsense_standard_table_form">
             <tr>
-              <th colspan="2" valign="top" class="listtopic"><?=gettext("Networking"); ?></th>
+              <td style="width:22%"><strong><?= gettext('Networking') ?></strong></td>
+              <td style="width:78%"></td>
             </tr>
             <tr>
               <td><a id="help_for_prefer_ipv4" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Prefer IPv4 over IPv6"); ?></td>
               <td>
                 <input name="prefer_ipv4" type="checkbox" id="prefer_ipv4" value="yes" <?= !empty($pconfig['prefer_ipv4']) ? "checked=\"checked\"" : "";?> />
-                <strong><?=gettext("Prefer to use IPv4 even if IPv6 is available"); ?></strong>
-                <div class="hidden" for="help_for_prefer_ipv4">
+                <?=gettext("Prefer to use IPv4 even if IPv6 is available"); ?>
+                <div class="hidden" data-for="help_for_prefer_ipv4">
                   <?=gettext("By default, if a hostname resolves IPv6 and IPv4 addresses ".
                                       "IPv6 will be used, if you check this option, IPv4 will be " .
                                       "used instead of IPv6."); ?>
@@ -359,12 +386,12 @@ include("head.inc");
                       </td>
                       <td>
                         <select name='<?="dns{$dnscounter}gw";?>' class='selectpicker' data-size="10" data-width="200px">
-                          <option value="none" <?=$pconfig[$dnsgw] == "none" ? "selected=\"selected\"" :"";?>>
+                          <option value="none" <?= $pconfig[$dnsgw] == 'none' ? 'selected="selected"' : '' ?>>
                             <?=gettext("none");?>
                           </option>
 <?php
                           foreach(return_gateways_array() as $gwname => $gwitem):
-                            if ($pconfig[$dnsgw] != "none") {
+                            if ($pconfig[$dnsgw] != 'none') {
                               if (is_ipaddrv4(lookup_gateway_ip_by_name($pconfig[$dnsgw])) && is_ipaddrv6($gwitem['gateway'])) {
                                 continue;
                               }
@@ -386,9 +413,9 @@ include("head.inc");
                     endfor; ?>
                   </tbody>
                 </table>
-                <div class="hidden" for="help_for_dnsservers">
+                <div class="hidden" data-for="help_for_dnsservers">
                   <?=gettext("Enter IP addresses to be used by the system for DNS resolution. " .
-                  "These are also used for the DHCP service, DNS forwarder and for PPTP VPN clients."); ?>
+                  "These are also used for the DHCP service, DNS services and for PPTP VPN clients."); ?>
                   <br />
                   <br />
                   <?=gettext("In addition, optionally select the gateway for each DNS server. " .
@@ -400,36 +427,73 @@ include("head.inc");
               <td><a id="help_for_dnsservers_opt" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("DNS server options"); ?></td>
               <td>
                 <input name="dnsallowoverride" type="checkbox" value="yes" <?= $pconfig['dnsallowoverride'] ? 'checked="checked"' : '' ?>/>
-                <strong>
-                  <?=gettext("Allow DNS server list to be overridden by DHCP/PPP on WAN"); ?>
-                </strong>
-                <div class="hidden" for="help_for_dnsservers_opt">
+                <?=gettext("Allow DNS server list to be overridden by DHCP/PPP on WAN"); ?>
+                <div class="hidden" data-for="help_for_dnsservers_opt">
                   <?= gettext("If this option is set, DNS servers " .
                   "assigned by a DHCP/PPP server on WAN will be used " .
-                  "for its own purposes (including the DNS forwarder). " .
+                  "for their own purposes (including the DNS services). " .
                   "However, they will not be assigned to DHCP and PPTP " .
                   "VPN clients.") ?>
-                </div>
-                <br/>
-                <input name="dnslocalhost" type="checkbox" value="yes" <?=$pconfig['dnslocalhost'] ? "checked=\"checked\"" : ""; ?> />
-                <strong>
-                  <?=gettext("Do not use the DNS Forwarder/Resolver as a DNS server for the firewall"); ?>
-                </strong>
-                <div class="hidden" for="help_for_dnsservers_opt">
-                  <?=gettext("By default localhost (127.0.0.1) will be used as the first DNS server where the DNS Forwarder or DNS Resolver is enabled and set to listen on Localhost, so system can use the local DNS service to perform lookups. ".
-                  "Checking this box omits localhost from the list of DNS servers."); ?>
                 </div>
               </td>
             </tr>
             <tr>
               <td></td>
               <td>
-                <input name="Submit" type="submit" class="btn btn-primary" value="<?=gettext("Save");?>" />
+                <input name="dnslocalhost" type="checkbox" value="yes" <?=$pconfig['dnslocalhost'] ? "checked=\"checked\"" : ""; ?> />
+                <?= gettext('Do not use the local DNS service as a nameserver for this system') ?>
+                <div class="hidden" data-for="help_for_dnsservers_opt">
+                  <?=gettext("By default localhost (127.0.0.1) will be used as the first nameserver when e.g. Dnsmasq or Unbound is enabled, so system can use the local DNS service to perform lookups. ".
+                  "Checking this box omits localhost from the list of DNS servers."); ?>
+                </div>
+              </td>
+            </tr>
+              <tr>
+                <td><a id="help_for_gw_switch_default" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext('Gateway switching') ?></td>
+                <td>
+                  <input name="gw_switch_default" type="checkbox" id="gw_switch_default" value="yes" <?= !empty($pconfig['gw_switch_default']) ? 'checked="checked"' : '' ?> />
+                  <?=gettext("Allow default gateway switching"); ?>
+                  <div class="hidden" data-for="help_for_gw_switch_default">
+                    <?= gettext('If the link where the default gateway resides fails switch the default gateway to another available one.') ?>
+                    <?= gettext('When using default gateway switching use any available gateway or select a specific gateway group below.') ?>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td><i class="fa fa-info-circle text-muted"></i> <?=gettext('IPv4 gateway group') ?></td>
+                <td>
+                  <select name="gw_switch_group4" class="selectpicker">
+                    <option value="" <?= empty($pconfig['gw_switch_group4']) ? 'selected="selected"' : '' ?>><?= gettext('Any available gateway') ?></option>
+<?php foreach (config_read_array('gateways', 'gateway_group') as $gwgroup): ?>
+                    <option value="<?= html_safe($gwgroup['name']) ?>" <?= $pconfig['gw_switch_group4'] == $gwgroup['name'] ? 'selected="selected"' : '' ?>><?= $gwgroup['name'] ?></option>
+<?php endforeach ?>
+                  </select>
+                </td>
+              </tr>
+              <tr>
+                <td><i class="fa fa-info-circle text-muted"></i> <?=gettext('IPv6 gateway group') ?></td>
+                <td>
+                  <select name="gw_switch_group6" class="selectpicker">
+                    <option value="" <?= empty($pconfig['gw_switch_group6']) ? 'selected="selected"' : '' ?>><?= gettext('Any available gateway') ?></option>
+<?php foreach (config_read_array('gateways', 'gateway_group') as $gwgroup): ?>
+                    <option value="<?= html_safe($gwgroup['name']) ?>" <?= $pconfig['gw_switch_group6'] == $gwgroup['name'] ? 'selected="selected"' : '' ?>><?= $gwgroup['name'] ?></option>
+<?php endforeach ?>
+                  </select>
+                </td>
+              </tr>
+          </table>
+        </div>
+        <div class="content-box tab-content">
+          <table class="table table-striped opnsense_standard_table_form">
+            <tr>
+              <td style="width:22%"></td>
+              <td>
+                <input name="Submit" type="submit" class="btn btn-primary" value="<?=html_safe(gettext('Save'));?>" />
               </td>
             </tr>
           </table>
-        </form>
-      </div>
+        </div>
+      </form>
     </section>
     </div>
   </div>

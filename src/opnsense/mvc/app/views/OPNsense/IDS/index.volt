@@ -25,10 +25,30 @@ ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 POSSIBILITY OF SUCH DAMAGE.
 
 #}
+<style>
+    .tooltip-inner {
+        min-width: 250px;
+    }
 
-<script type="text/javascript">
+    .ids-alert-info > tbody > tr > td {
+        padding-top: 2px !important;
+        padding-bottom: 2px !important;
+    }
+    .ids-alert-info > tbody > tr > td:first-child {
+        width: 150px;
+    }
+    @media (min-width: 768px) {
+        .suricata-alert > .modal-dialog {
+            width: 90%;
+            max-width:1200px;
+        }
+    }
+</style>
+
+<script>
 
     $( document ).ready(function() {
+        var interface_descriptions = {};
         //
         var data_get_map = {'frm_GeneralSettings':"/api/ids/settings/get"};
 
@@ -36,16 +56,14 @@ POSSIBILITY OF SUCH DAMAGE.
          * update service status
          */
         function updateStatus() {
-            ajaxCall(url="/api/ids/service/status", sendData={}, callback=function(data,status) {
-                updateServiceStatusUI(data['status']);
-            });
+            updateServiceControlUI('ids');
         }
 
         /**
          * list all known classtypes and add to selection box
          */
         function updateRuleClassTypes() {
-            ajaxGet(url="/api/ids/settings/listRuleClasstypes",sendData={}, callback=function(data, status) {
+            ajaxGet("/api/ids/settings/listRuleClasstypes", {}, function(data, status) {
                 if (status == "success") {
                     $('#ruleclass').html('<option value="">ALL</option>');
                     $.each(data['items'], function(key, value) {
@@ -70,7 +88,7 @@ POSSIBILITY OF SUCH DAMAGE.
          * update list of available alert logs
          */
         function updateAlertLogs() {
-            ajaxGet(url="/api/ids/service/getAlertLogs",sendData={}, callback=function(data, status) {
+            ajaxGet("/api/ids/service/getAlertLogs", {}, function(data, status) {
                 if (status == "success") {
                     $('#alert-logfile').html("");
                     $.each(data, function(key, value) {
@@ -148,8 +166,8 @@ POSSIBILITY OF SUCH DAMAGE.
          */
         function actionReconfigure(callback_funct) {
             var result_status = false;
-            saveFormToEndpoint(url="/api/ids/settings/set",formid='frm_GeneralSettings',callback_ok=function(){
-                ajaxCall(url="/api/ids/service/reconfigure", sendData={}, callback=function(data,status) {
+            saveFormToEndpoint("/api/ids/settings/set", 'frm_GeneralSettings', function(){
+                ajaxCall("/api/ids/service/reconfigure", {}, function(data,status) {
                     if (status == "success" || data['status'].toLowerCase().trim() == "ok") {
                         result_status = true;
                     }
@@ -164,11 +182,12 @@ POSSIBILITY OF SUCH DAMAGE.
          * @param gridId: grid id to to use
          * @param url: ajax action to call
          * @param state: 0/1/undefined
-         * @param combine: number of keys to combine (seperate with ,)
+         * @param combine: number of keys to combine (separate with ,)
          *                 try to avoid too much items per call (results in too long url's)
          */
         function actionToggleSelected(gridId, url, state, combine) {
-            var rows =$("#"+gridId).bootgrid('getSelectedRows');
+            var defer_toggle = $.Deferred();
+            var rows = $("#"+gridId).bootgrid('getSelectedRows');
             if (rows != undefined){
                 var deferreds = [];
                 if (state != undefined) {
@@ -176,26 +195,31 @@ POSSIBILITY OF SUCH DAMAGE.
                 } else {
                     var url_suffix = "";
                 }
-
+                var base = $.when({});
                 var keyset = [];
-                $.each(rows, function(key,uuid){
+                $.each(rows, function(key, uuid){
                     keyset.push(uuid);
-                    if ( combine == undefined || keyset.length > combine) {
-                        deferreds.push(ajaxCall(url + keyset.join(',') +'/'+url_suffix, sendData={},null));
+                    if ( combine === undefined || keyset.length > combine || rows[rows.length - 1] === uuid) {
+                        var call_url = url + keyset.join(',') +'/'+url_suffix;
+                        base = base.then(function() {
+                            var defer = $.Deferred();
+                            ajaxCall(call_url, {}, function(){
+                                defer.resolve();
+                            });
+                            return defer.promise();
+                        });
                         keyset = [];
                     }
                 });
-
-                // flush remaining items
-                if (keyset.length > 0) {
-                    deferreds.push(ajaxCall(url + keyset.join(',') +'/'+url_suffix, sendData={},null));
-                }
-
-                // refresh when all toggles are executed
-                $.when.apply(null, deferreds).done(function(){
+                // last action in the list, reload grid and release this promise
+                base.then(function(){
                     $("#"+gridId).bootgrid("reload");
+                    defer_toggle.resolve();
                 });
+            } else {
+                defer_toggle.resolve();
             }
+            return defer_toggle.promise();
         }
 
         /*************************************************************************************************************
@@ -206,9 +230,8 @@ POSSIBILITY OF SUCH DAMAGE.
          * load content on tab changes
          */
         $('a[data-toggle="tab"]').on('shown.bs.tab', function (e) {
-            if (e.target.id == 'settings_tab'){
-                loadGeneralSettings();
-            } else if (e.target.id == 'download_settings_tab') {
+            loadGeneralSettings();
+            if (e.target.id == 'download_settings_tab') {
                 /**
                  * grid for installable rule files
                  */
@@ -250,7 +273,7 @@ POSSIBILITY OF SUCH DAMAGE.
                     }
                 });
                 // display file settings (if available)
-                ajaxGet(url="/api/ids/settings/getRulesetproperties", sendData={}, callback=function(data, status) {
+                ajaxGet("/api/ids/settings/getRulesetproperties", {}, function(data, status) {
                     if (status == "success") {
                         var rows = [];
                         // generate rows with field references
@@ -308,7 +331,7 @@ POSSIBILITY OF SUCH DAMAGE.
                  * grid query alerts
                  */
                 $('#grid-alerts').bootgrid('destroy'); // always destroy previous grid, so data is always fresh
-                $("#grid-alerts").UIBootgrid(
+                var grid_alerts = $("#grid-alerts").UIBootgrid(
                         {   search:'/api/ids/service/queryAlerts',
                             get:'/api/ids/service/getAlertInfo/',
                             options:{
@@ -320,11 +343,144 @@ POSSIBILITY OF SUCH DAMAGE.
                                 requestHandler:addAlertQryFilters,
                                 formatters:{
                                     info: function (column, row) {
-                                        return "<button type=\"button\" class=\"btn btn-xs btn-default command-edit\" data-row-id=\"" + row.filepos + "/" + row.fileid + "\"><span class=\"fa fa-pencil\"></span></button> ";
+                                        return "<button type=\"button\" class=\"btn btn-xs btn-default command-alertinfo\" data-row-id=\"" + row.filepos + "/" + row.fileid + "\"><span class=\"fa fa-pencil\"></span></button> ";
                                     }
                                 },
+                                converters: {
+                                    // convert interface to name
+                                    interface: {
+                                        from: function (value) { return value; },
+                                        to: function (value) {
+                                          if (value == null || value == undefined) {
+                                              return "";
+                                          }
+                                          return interface_descriptions[value.replace(/\+$/, '')];
+                                        }
+                                    }
+                                }
                             }
                         });
+                // tooltip wide fields in alert grid
+                grid_alerts.on("loaded.rs.jquery.bootgrid", function(){
+                    $("#grid-alerts > tbody > tr > td").each(function(){
+                        if ($(this).outerWidth() < $(this)[0].scrollWidth) {
+                            var grid_td = $("<span/>");
+                            grid_td.html($(this).html());
+                            grid_td.tooltip({title: $(this).text()});
+                            $(this).html(grid_td);
+                        }
+                    });
+                });
+                // hook in alert details on alertinfo command
+                grid_alerts.on("loaded.rs.jquery.bootgrid", function(){
+                    grid_alerts.find(".command-alertinfo").on("click", function(e) {
+                        var uuid=$(this).data("row-id");
+                        ajaxGet('/api/ids/service/getAlertInfo/' + uuid, {}, function(data, status) {
+                                if (status == 'success') {
+                                    ajaxGet("/api/ids/settings/getRuleInfo/"+data['alert_sid'], {}, function(rule_data, rule_status) {
+                                        var tbl = $('<table class="table table-condensed table-hover ids-alert-info"/>');
+                                        var tbl_tbody = $("<tbody/>");
+                                        var alert_fields = {};
+                                        alert_fields['timestamp'] = "{{ lang._('Timestamp') }}";
+                                        alert_fields['alert'] = "{{ lang._('Alert') }}";
+                                        alert_fields['alert_sid'] = "{{ lang._('Alert sid') }}";
+                                        alert_fields['proto'] = "{{ lang._('Protocol') }}";
+                                        alert_fields['src_ip'] = "{{ lang._('Source IP') }}";
+                                        alert_fields['dest_ip'] = "{{ lang._('Destination IP') }}";
+                                        alert_fields['src_port'] = "{{ lang._('Source port') }}";
+                                        alert_fields['dest_port'] = "{{ lang._('Destination port') }}";
+                                        alert_fields['in_iface'] = "{{ lang._('Interface') }}";
+                                        alert_fields['http.hostname'] = "{{ lang._('http hostname') }}";
+                                        alert_fields['http.url'] = "{{ lang._('http url') }}";
+                                        alert_fields['http.http_user_agent'] = "{{ lang._('http user_agent') }}";
+                                        alert_fields['http.http_content_type'] = "{{ lang._('http content_type') }}";
+                                        alert_fields['tls.subject'] = "{{ lang._('tls subject') }}";
+                                        alert_fields['tls.issuerdn'] = "{{ lang._('tls issuer') }}";
+                                        alert_fields['tls.session_resumed'] = "{{ lang._('tls session resumed') }}";
+                                        alert_fields['tls.fingerprint'] = "{{ lang._('tls fingerprint') }}";
+                                        alert_fields['tls.serial'] = "{{ lang._('tls serial') }}";
+                                        alert_fields['tls.version'] = "{{ lang._('tls version') }}";
+                                        alert_fields['tls.notbefore'] = "{{ lang._('tls notbefore') }}";
+                                        alert_fields['tls.notafter'] = "{{ lang._('tls notafter') }}";
+
+                                        $.each( alert_fields, function( fieldname, fielddesc ) {
+                                            var data_ptr = data;
+                                            $.each(fieldname.split('.'),function(indx, keypart){
+                                                if (data_ptr != undefined) {
+                                                    data_ptr = data_ptr[keypart];
+                                                }
+                                            });
+
+                                            if (data_ptr != undefined) {
+                                                var row = $("<tr/>");
+                                                row.append($("<td/>").text(fielddesc));
+                                                if (fieldname == 'in_iface' && interface_descriptions[data_ptr.replace(/\+$/, '')] != undefined) {
+                                                    row.append($("<td/>").text(interface_descriptions[data_ptr.replace(/\+$/, '')]));
+                                                } else {
+                                                    row.append($("<td/>").text(data_ptr));
+                                                }
+                                                tbl_tbody.append(row);
+                                            }
+                                        });
+
+                                        if (rule_data.action != undefined) {
+                                            var alert_select = $('<select class="selectpicker"/>');
+                                            var alert_enabled = $('<input type="checkbox"/>');
+                                            if (rule_data.enabled == '1') {
+                                                alert_enabled.prop('checked', true);
+                                            }
+                                            $.each(rule_data.action, function(key, value){
+                                                var opt = $('<option/>').attr("value", key).text(value.value);
+                                                if (value.selected == 1) {
+                                                    opt.attr('selected', 'selected');
+                                                }
+                                                alert_select.append(opt);
+                                            });
+                                            tbl_tbody.append(
+                                              $("<tr/>").append(
+                                                $("<td/>").text("{{ lang._('Configured action') }}"),
+                                                $("<td id='alert_sid_action'/>").append(
+                                                  alert_enabled, $("<span/>").html("&nbsp; <strong>{{ lang._('Enabled')}}</strong>"), alert_select
+                                                )
+                                              )
+                                            );
+                                            alert_select.change(function(){
+                                                var rule_params = {'action': alert_select.val()};
+                                                if (alert_enabled.is(':checked')) {
+                                                    rule_params['enabled'] = 1;
+                                                } else {
+                                                    rule_params['enabled'] = 0;
+                                                }
+                                                ajaxCall("/api/ids/settings/setRule/"+data['alert_sid'], rule_params, function() {
+                                                    $("#alert_sid_action > small").remove();
+                                                    $("#alert_sid_action").append($('<small/>').html("{{ lang._('Changes will be active after apply (rules tab)') }}"));
+                                                });
+                                            });
+                                            alert_enabled.change(function(){
+                                                alert_select.change();
+                                            });
+                                        }
+                                        if (data['payload_printable'] != undefined && data['payload_printable'] != null) {
+                                            tbl_tbody.append(
+                                              $("<tr/>").append(
+                                                $("<td colspan=2/>").append(
+                                                  $("<strong/>").text("{{ lang._('Payload') }}")
+                                                )
+                                              )
+                                            );
+
+                                            var row = $("<tr/>");
+                                            row.append( $("<td colspan=2/>").append($("<pre/>").html($("<code/>").text(data['payload_printable']))));
+                                            tbl_tbody.append(row);
+                                        }
+
+                                        tbl.append(tbl_tbody);
+                                        stdDialogInform("{{ lang._('Alert info') }}", tbl, "{{ lang._('Close') }}", undefined, "info", 'suricata-alert');
+                                  });
+                                }
+                            });
+                    }).end();
+              });
             } else if (e.target.id == 'userrules_tab') {
                 $('#grid-userrules').bootgrid('destroy'); // always destroy previous grid, so data is always fresh
                 $("#grid-userrules").UIBootgrid({
@@ -337,7 +493,7 @@ POSSIBILITY OF SUCH DAMAGE.
                     }
                 );
             }
-        })
+        });
 
 
 
@@ -371,7 +527,7 @@ POSSIBILITY OF SUCH DAMAGE.
             $(".rulesetprop").each(function(){
                 settings[$(this).data('id')] = $(this).val();
             });
-            ajaxCall(url="/api/ids/settings/setRulesetproperties", sendData={'properties': settings}, callback=function(data,status) {
+            ajaxCall("/api/ids/settings/setRulesetproperties", {'properties': settings}, function(data,status) {
                 $("#updateSettings_progress").removeClass("fa fa-spinner fa-pulse");
             });
         });
@@ -381,7 +537,7 @@ POSSIBILITY OF SUCH DAMAGE.
          */
         $(".act_update").click(function(){
             $(".act_update_progress").addClass("fa fa-spinner fa-pulse");
-            ajaxCall(url="/api/ids/service/reloadRules", sendData={}, callback=function(data,status) {
+            ajaxCall("/api/ids/service/reloadRules", {}, function(data,status) {
                 // when done, disable progress animation.
                 $(".act_update_progress").removeClass("fa fa-spinner fa-pulse");
             });
@@ -392,7 +548,7 @@ POSSIBILITY OF SUCH DAMAGE.
          */
         $("#updateRulesAct").click(function(){
             $("#updateRulesAct_progress").addClass("fa fa-spinner fa-pulse");
-            ajaxCall(url="/api/ids/service/updateRules", sendData={}, callback=function(data,status) {
+            ajaxCall("/api/ids/service/updateRules", {}, function(data,status) {
                 // when done, disable progress animation and reload grid.
                 $('#grid-rule-files').bootgrid('reload');
                 updateStatus();
@@ -421,19 +577,30 @@ POSSIBILITY OF SUCH DAMAGE.
         /**
          * disable selected rules
          */
-        $("#disableSelectedRules").click(function(){
+        $("#disableSelectedRules").click(function(event){
+            event.preventDefault();
             var gridId = 'grid-installedrules';
             var url = '/api/ids/settings/toggleRule/';
-            actionToggleSelected(gridId, url, 0, 100);
+            $("#disableSelectedRules > span").removeClass("fa-square-o");
+            $("#disableSelectedRules > span").addClass("fa-spinner fa-pulse");
+            actionToggleSelected(gridId, url, 0, 100).done(function(){
+                $("#disableSelectedRules > span").removeClass("fa-spinner fa-pulse");
+                $("#disableSelectedRules > span").addClass("fa-square-o");
+            });
         });
 
         /**
          * enable selected rules
          */
-        $("#enableSelectedRules").click(function(){
+        $("#enableSelectedRules").unbind('click').click(function(){
             var gridId = 'grid-installedrules';
             var url = '/api/ids/settings/toggleRule/';
-            actionToggleSelected(gridId, url, 1, 100);
+            $("#enableSelectedRules > span").removeClass("fa-check-square-o");
+            $("#enableSelectedRules > span").addClass("fa-spinner fa-pulse");
+            actionToggleSelected(gridId, url, 1, 100).done(function(){
+                $("#enableSelectedRules > span").removeClass("fa-spinner fa-pulse");
+                $("#enableSelectedRules > span").addClass("fa-check-square-o");
+            });
         });
 
         /**
@@ -461,43 +628,13 @@ POSSIBILITY OF SUCH DAMAGE.
         });
 
         /**
-         * Change sid to action selector after DialogAlert show
-         */
-        $( "#DialogAlert" ).on('shown.bs.modal', function (e) {
-            // replace "sid" for sid + action
-            $("#alert_sid").show();
-            $("#alert_sid_action").remove();
-            var sid = $("#alert_sid").html();
-            ajaxGet(url="/api/ids/settings/getRuleInfo/"+sid,sendData={}, callback=function(data, status) {
-                if (status == "success") {
-                    $("#alert_sid").hide();
-                    var alert_select = $('<select class="selectpicker"/>');
-                    $.each(data['action'], function(key, value){
-                        var opt = $('<option/>').attr("value", key).text(value.value)
-                        if (value.selected == 1) {
-                            opt.attr('selected', 'selected');
-                        }
-                        alert_select.append(opt);
-                    });
-                    $("#alert_sid").parent().append($('<div id="alert_sid_action"/>'));
-                    $("#alert_sid_action").append($('<table style="width:200px;"/>')
-                        .append($('<tr/>')
-                            .append($('<td/>').html(sid))
-                            .append($('<td/>').append(alert_select))
-                    ));
-                    alert_select.change(function(){
-                        ajaxCall(url="/api/ids/settings/setRule/"+sid, sendData={action:$(this).val()}, callback=function(data,status) {
-                            $("#alert_sid_action > small").remove();
-                            $("#alert_sid_action").append($('<small/>').html("{{ lang._('Changes will be active after apply (rules tab)') }}"));
-                        });
-                    });
-                }
-            });
-        });
-
-        /**
          * Initialize
          */
+        // fetch interface mappings on load
+        ajaxGet('/api/diagnostics/interface/getInterfaceNames', {}, function(data, status) {
+            interface_descriptions = data;
+        });
+
         updateStatus();
 
         // update history on tab state and implement navigation
@@ -523,10 +660,9 @@ POSSIBILITY OF SUCH DAMAGE.
                     label: '{{ lang._('Yes') }}',
                     cssClass: 'btn-primary',
                     action: function(dlg){
-                        ajaxCall(url="/api/ids/service/dropAlertLog/",sendData={filename: selected_log.data('filename')},
-                                callback=function(data,status){
-                                    updateAlertLogs();
-                                });
+                        ajaxCall("/api/ids/service/dropAlertLog/", {filename: selected_log.data('filename')}, function(data,status){
+                            updateAlertLogs();
+                        });
                         dlg.close();
                     }
                 }, {
@@ -552,7 +688,7 @@ POSSIBILITY OF SUCH DAMAGE.
     <li><a data-toggle="tab" href="#alerts" id="alert_tab">{{ lang._('Alerts') }}</a></li>
     <li><a href="" id="scheduled_updates" style="display:none">{{ lang._('Schedule') }}</a></li>
 </ul>
-<div class="tab-content content-box tab-content">
+<div class="tab-content content-box">
     <div id="settings" class="tab-pane fade in">
         {{ partial("layout_partials/base_form",['fields':formGeneralSettings,'id':'frm_GeneralSettings'])}}
         <div class="col-md-12">
@@ -578,8 +714,8 @@ POSSIBILITY OF SUCH DAMAGE.
                       <td>
                         <div class="row">
                           <div class="col-xs-9">
-                            <button data-toggle="tooltip" id="enableSelectedRuleSets" type="button" class="btn btn-xs btn-default btn-primary">{{ lang._('Enable selected') }}</span></button>
-                            <button data-toggle="tooltip" id="disableSelectedRuleSets" type="button" class="btn btn-xs btn-default btn-primary">{{ lang._('Disable selected') }}</span></button>
+                            <button data-toggle="tooltip" id="enableSelectedRuleSets" type="button" class="btn btn-xs btn-default btn-primary">{{ lang._('Enable selected') }}</button>
+                            <button data-toggle="tooltip" id="disableSelectedRuleSets" type="button" class="btn btn-xs btn-default btn-primary">{{ lang._('Disable selected') }}</button>
                           </div>
                           <div class="col-xs-3" style="padding-top:0px;">
                             <input type="text" placeholder="{{ lang._('Search') }}" id="grid-rule-files-search" value=""/>
@@ -663,8 +799,8 @@ POSSIBILITY OF SUCH DAMAGE.
             <tfoot>
             <tr>
                 <td>
-                    <button title="{{ lang._('Disable selected') }}" id="disableSelectedRules" type="button" class="btn btn-xs btn-default"><span class="fa fa-square-o command-toggle"></span></button>
-                    <button title="{{ lang._('Enable selected') }}" id="enableSelectedRules" type="button" class="btn btn-xs btn-default"><span class="fa fa-check-square-o command-toggle"></span></button>
+                    <button title="{{ lang._('Disable selected') }}" id="disableSelectedRules" type="button" class="btn btn-xs btn-default"><span class="fa fa-square-o"></span></button>
+                    <button title="{{ lang._('Enable selected') }}" id="enableSelectedRules" type="button" class="btn btn-xs btn-default"><span class="fa fa-check-square-o"></span></button>
                 </td>
                 <td></td>
             </tr>
@@ -714,7 +850,7 @@ POSSIBILITY OF SUCH DAMAGE.
             <div class="row">
                 <div class="col-sm-12 actionBar">
                     <select id="alert-logfile" class="selectpicker" data-width="200px"></select>
-                    <span id="actDeleteLog" class="btn btn-lg fa fa-trash" style="cursor: pointer;"></span>
+                    <span id="actDeleteLog" class="btn btn-lg fa fa-trash" style="cursor: pointer;" title="{{ lang._('Delete Alert Log') }}"></span>
                     <select id="alert-logfile-max" class="selectpicker" data-width="80px">
                         <option value="7">7</option>
                         <option value="50">50</option>
@@ -733,16 +869,19 @@ POSSIBILITY OF SUCH DAMAGE.
                 </div>
             </div>
         </div>
-        <table id="grid-alerts" class="table table-condensed table-hover table-striped table-responsive" data-editDialog="DialogAlert">
+        <table id="grid-alerts" class="table table-condensed table-hover table-striped table-responsive">
             <thead>
-            <tr>
-                <th data-column-id="timestamp" data-type="string" data-sortable="false">{{ lang._('Timestamp') }}</th>
-                <th data-column-id="alert_action" data-type="string" data-sortable="false">{{ lang._('Action') }}</th>
-                <th data-column-id="src_ip" data-type="string" data-sortable="false" data-width="10em">{{ lang._('Source') }}</th>
-                <th data-column-id="dest_ip" data-type="string" data-sortable="false" data-width="10em">{{ lang._('Destination') }}</th>
-                <th data-column-id="alert" data-type="string" data-sortable="false" >{{ lang._('Alert') }}</th>
-                <th data-column-id="info" data-formatter="info" data-sortable="false" data-width="4em">{{ lang._('Info') }}</th>
-            </tr>
+              <tr>
+                  <th data-column-id="timestamp" data-type="string" data-sortable="false">{{ lang._('Timestamp') }}</th>
+                  <th data-column-id="alert_action" data-type="string" data-sortable="false" data-width="70px">{{ lang._('Action') }}</th>
+                  <th data-column-id="in_iface" data-type="interface" data-sortable="false" data-width="100px">{{ lang._('Interface') }}</th>
+                  <th data-column-id="src_ip" data-type="string" data-sortable="false" data-width="150px">{{ lang._('Source') }}</th>
+                  <th data-column-id="src_port" data-type="string" data-sortable="false" data-width="70px">{{ lang._('Port') }}</th>
+                  <th data-column-id="dest_ip" data-type="string" data-sortable="false" data-width="150px">{{ lang._('Destination') }}</th>
+                  <th data-column-id="dest_port" data-type="string" data-sortable="false" data-width="70px">{{ lang._('Port') }}</th>
+                  <th data-column-id="alert" data-type="string" data-sortable="false" >{{ lang._('Alert') }}</th>
+                  <th data-column-id="info" data-formatter="info" data-sortable="false" data-width="4em">{{ lang._('Info') }}</th>
+              </tr>
             </thead>
             <tbody>
             </tbody>
@@ -753,6 +892,5 @@ POSSIBILITY OF SUCH DAMAGE.
 {{ partial("layout_partials/base_dialog_processing") }}
 
 {{ partial("layout_partials/base_dialog",['fields':formDialogRule,'id':'DialogRule','label':lang._('Rule details'),'hasSaveBtn':'true','msgzone_width':1])}}
-{{ partial("layout_partials/base_dialog",['fields':formDialogAlert,'id':'DialogAlert','label':lang._('Alert details'),'hasSaveBtn':'false','msgzone_width':1])}}
 {{ partial("layout_partials/base_dialog",['fields':formDialogRuleset,'id':'DialogRuleset','label':lang._('Ruleset details'),'hasSaveBtn':'true','msgzone_width':1])}}
 {{ partial("layout_partials/base_dialog",['fields':formDialogUserDefined,'id':'DialogUserDefined','label':lang._('Rule details'),'hasSaveBtn':'true'])}}

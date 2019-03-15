@@ -75,9 +75,9 @@ label           :   dialog label
                         <tbody>
                         {%  if base_dialog_advanced|default(false) or base_dialog_help|default(false) %}
                         <tr>
-                            <td>{% if base_dialog_advanced|default(false) %}<a href="#"><i class="fa fa-toggle-off text-danger" id="show_advanced_formDialog{{base_dialog_id}}"></i> </a><small>{{ lang._('advanced mode') }} </small>{% endif %}</td>
+                            <td>{% if base_dialog_advanced|default(false) %}<a href="#"><i class="fa fa-toggle-off text-danger" id="show_advanced_formDialog{{base_dialog_id}}"></i></a> <small>{{ lang._('advanced mode') }}</small>{% endif %}</td>
                             <td colspan="2" style="text-align:right;">
-                                {% if base_dialog_help|default(false) %}<small>{{ lang._('full help') }} </small><a href="#"><i class="fa fa-toggle-off text-danger" id="show_all_help_formDialog{{base_dialog_id}}"></i></a>{% endif %}
+                                {% if base_dialog_help|default(false) %}<small>{{ lang._('full help') }}</small> <a href="#"><i class="fa fa-toggle-off text-danger" id="show_all_help_formDialog{{base_dialog_id}}"></i></a>{% endif %}
                             </td>
                         </tr>
                         {% endif %}
@@ -90,6 +90,7 @@ label           :   dialog label
                             {% set maxheight=false %}
                             {% set width=false %}
                             {% set allownew=false %}
+                            {% set readonly=false %}
                             {% if field['type'] == 'header' %}
                               {# close table and start new one with header #}
 
@@ -105,8 +106,8 @@ label           :   dialog label
             <col class="col-md-{{ msgzone_width|default(5) }}"/>
         </colgroup>
         <thead>
-          <tr colspan="3">
-            <th><h2>{{field['label']}}</h2></th>
+          <tr{% if field['advanced']|default(false)=='true' %} data-advanced="true"{% endif %}>
+            <th colspan="3"><h2>{{field['label']}}</h2></th>
           </tr>
         </thead>
         <tbody>
@@ -122,9 +123,11 @@ label           :   dialog label
                 </form>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-default" data-dismiss="modal">{{ lang._('Close') }}</button>
                 {% if hasSaveBtn|default('true') == 'true' %}
-                <button type="button" class="btn btn-primary" id="btn_{{base_dialog_id}}_save">{{ lang._('Save changes') }}<i id="btn_{{base_dialog_id}}_save_progress" class=""></i></button>
+                <button type="button" class="btn btn-default" data-dismiss="modal">{{ lang._('Cancel') }}</button>
+                <button type="button" class="btn btn-primary" id="btn_{{base_dialog_id}}_save">{{ lang._('Save') }} <i id="btn_{{base_dialog_id}}_save_progress" class=""></i></button>
+                {% else %}
+                <button type="button" class="btn btn-default" data-dismiss="modal">{{ lang._('Close') }}</button>
                 {% endif %}
             </div>
         </div>

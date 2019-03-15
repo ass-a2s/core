@@ -1,116 +1,69 @@
 <?php
 
 /*
-    Copyright (C) 2014-2015 Deciso B.V.
-    Copyright (C) 2007 Scott Ullrich <sullrich@gmail.com>
-    All rights reserved.
-
-    Redistribution and use in source and binary forms, with or without
-    modification, are permitted provided that the following conditions are met:
-
-    1. Redistributions of source code must retain the above copyright notice,
-       this list of conditions and the following disclaimer.
-
-    2. Redistributions in binary form must reproduce the above copyright
-       notice, this list of conditions and the following disclaimer in the
-       documentation and/or other materials provided with the distribution.
-
-    THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
-    INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
-    AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
-    AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
-    OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-    SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-    INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-    CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-    ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-    POSSIBILITY OF SUCH DAMAGE.
-*/
+ * Copyright (C) 2014-2018 Deciso B.V.
+ * Copyright (C) 2007 Scott Ullrich <sullrich@gmail.com>
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
+ * AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
+ * OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ */
 
 require_once("guiconfig.inc");
 require_once("auth.inc");
 
-include('head.inc');
+$result = array();
 
-$ous = array();
-if (isset($_GET['basedn']) && isset($_GET['host'])) {
-    if (isset($_GET['cert'])) {
-        $authcfg = array();
-        $authcfg['ldap_caref'] = $_GET['cert'];
-        $authcfg['ldap_urltype'] = 'SSL';
-        ldap_setup_caenv($authcfg);
-    }
-
-    $ldap_authcn = isset($_GET['authcn']) ? explode(";", $_GET['authcn']) : array();
-    if (isset($_GET['urltype']) && strstr($_GET['urltype'], "Standard")) {
+if (isset($_POST['basedn']) && isset($_POST['host'])) {
+    $ldap_authcn = isset($_POST['authcn']) ? explode(";", $_POST['authcn']) : array();
+    if (isset($_POST['urltype']) && (strstr($_POST['urltype'], "Standard") || strstr($_POST['urltype'], "StartTLS"))) {
         $ldap_full_url = "ldap://";
     } else {
         $ldap_full_url = "ldaps://";
     }
-    $ldap_full_url .= is_ipaddrv6($_GET['host']) ? "[{$_GET['host']}]" : $_GET['host'];
-    if (!empty($_GET['port'])) {
-        $ldap_full_url .= ":{$_GET['port']}";
+    $ldap_full_url .= is_ipaddrv6($_POST['host']) ? "[{$_POST['host']}]" : $_POST['host'];
+    if (!empty($_POST['port'])) {
+        $ldap_full_url .= ":{$_POST['port']}";
     }
 
-    $ldap_auth = new OPNsense\Auth\LDAP($_GET['basedn'], isset($_GET['proto']) ? $_GET['proto'] : 3);
+    $ldap_auth = new OPNsense\Auth\LDAP($_POST['basedn'], isset($_POST['proto']) ? $_POST['proto'] : 3);
+    if (isset($_POST['cert'])) {
+        $ldap_auth->setupCaEnv($_POST['cert']);
+    }
     $ldap_is_connected = $ldap_auth->connect($ldap_full_url
-                                            , !empty($_GET['binddn']) ? $_GET['binddn'] : null
-    , !empty($_GET['bindpw']) ? $_GET['bindpw'] : null
+                                            , !empty($_POST['binddn']) ? $_POST['binddn'] : null
+    , !empty($_POST['bindpw']) ? $_POST['bindpw'] : null
     );
+
+    $ous = false;
+
     if ($ldap_is_connected) {
         $ous = $ldap_auth->listOUs();
     }
-}
-?>
 
- <body>
-  <script type="text/javascript">
-      function post_choices() {
-        var ous = <?= html_safe(count($ous)) ?>;
-        var i;
-        var values = $("#ou:checked").map(function(){
-                        return $(this).val();
-                     }).get().join(';');
-        window.opener.document.getElementById('ldapauthcontainers').value=values;
-        window.close();
-      }
-  </script>
- <form method="post">
-<?php
-  if (empty($ous)) :?>
-  <p><?=gettext("Could not connect to the LDAP server. Please check your LDAP configuration.");?></p>
-  <input type='button' class="btn btn-default" value='<?=gettext("Close"); ?>' onClick="window.close();">
-<?php
-  else :?>
-  <section class="page-content-main">
-    <div class="container-fluid">
-      <div class="row">
-        <div class="table-responsive">
-          <table class="table table-striped">
-            <tbody>
-              <tr>
-                <th><?=gettext("Please select which containers to Authenticate against:");?></th>
-              </tr>
-<?php
-              foreach ($ous as $ou):?>
-              <tr>
-                <td><input type='checkbox' value='<?=$ou;?>' id='ou' name='ou[]' <?=in_array($ou, $ldap_authcn) ? "CHECKED": "";?>> <?=$ou;?></td>
-              </tr>
-<?php
-              endforeach;?>
-              <tr>
-                <td align="right">
-                  <input type='button' class="btn btn-primary" value='<?=gettext("Save");?>' onClick="post_choices();">
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  </section>
-<?php
-  endif; ?>
- </form>
-</body>
-</html>
+    if ($ous !== false) {
+        foreach ($ous as $ou) {
+            $result[] = array("value" => $ou, "selected" => in_array($ou, $ldap_authcn));
+        }
+    }
+}
+
+echo json_encode($result);

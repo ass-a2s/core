@@ -1,39 +1,45 @@
 <?php
 
 /*
-    Copyright (C) 2015-2016 Franco Fichtner <franco@opnsense.org>
-    Copyright (C) 2014 Deciso B.V.
-    Copyright (C) 2004 Scott Ullrich <sullrich@gmail.com>
-    Copyright (C) 2003-2004 Manuel Kasper <mk@neon1.net>.
-    All rights reserved.
-
-    Redistribution and use in source and binary forms, with or without
-    modification, are permitted provided that the following conditions are met:
-
-    1. Redistributions of source code must retain the above copyright notice,
-       this list of conditions and the following disclaimer.
-
-    2. Redistributions in binary form must reproduce the above copyright
-       notice, this list of conditions and the following disclaimer in the
-       documentation and/or other materials provided with the distribution.
-
-    THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
-    INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
-    AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
-    AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
-    OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-    SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-    INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-    CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-    ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-    POSSIBILITY OF SUCH DAMAGE.
-*/
+ * Copyright (C) 2015-2016 Franco Fichtner <franco@opnsense.org>
+ * Copyright (C) 2014 Deciso B.V.
+ * Copyright (C) 2004 Scott Ullrich <sullrich@gmail.com>
+ * Copyright (C) 2003-2004 Manuel Kasper <mk@neon1.net>
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
+ * AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
+ * OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ */
 
 require_once("util.inc");
 require_once("config.inc");
 
 /* CSRF BEGIN: CHECK MUST BE EXECUTED FIRST; NO EXCEPTIONS */
 require_once('csrf.inc');
+// hardening
+header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' 'unsafe-eval';");
+header('X-Frame-Options: SAMEORIGIN');
+header('X-Content-Type-Options: nosniff');
+header('X-XSS-Protection: 1; mode=block');
+header('Referrer-Policy: same-origin');
 /* CSRF END: THANK YOU FOR YOUR COOPERATION */
 
 function get_current_theme()
@@ -55,21 +61,27 @@ function html_safe($text)
     return htmlspecialchars($text, ENT_QUOTES | ENT_HTML401);
 }
 
-header("X-Frame-Options: SAMEORIGIN");
-
-/* set language */
-$lang = 'en_US';
-if (!empty($config['system']['language'])) {
-    $lang = $config['system']['language'];
+/**
+ * search for a themed filename or return distribution standard
+ * @param string $url relative url
+ * @return string
+ */
+function get_themed_filename($url)
+{
+    $theme = get_current_theme();
+    $search_pattern = array(
+        "/themes/{$theme}/build/",
+        "/"
+    );
+    foreach ($search_pattern as $pattern) {
+        $filename = "/usr/local/opnsense/www{$pattern}{$url}";
+        if (file_exists($filename)) {
+            return str_replace("//", "/", "/ui{$pattern}{$url}");
+        }
+    }
+    return $url; // not found, return source
 }
 
-$lang_encoding = $lang . '.UTF-8';
-$textdomain = 'OPNsense';
-
-putenv('LANG=' . $lang_encoding);
-textdomain($textdomain);
-bindtextdomain($textdomain, '/usr/local/share/locale');
-bind_textdomain_codeset($textdomain, $lang_encoding);
 
 require_once("authgui.inc");
 
@@ -154,7 +166,16 @@ function do_input_validation($postdata, $reqdfields, $reqdfieldsn, &$input_error
     }
 
     for ($i = 0; $i < count($reqdfields); $i++) {
-        if (empty($postdata[$reqdfields[$i]])) {
+        $fields = explode(',', $reqdfields[$i]);
+        $found = false;
+
+        foreach ($fields as $field) {
+            if (!empty($postdata[$field])) {
+                $found = true;
+            }
+        }
+
+        if (!$found) {
             $input_errors[] = sprintf(gettext("The field %s is required."), $reqdfieldsn[$i]);
         }
     }
@@ -177,9 +198,9 @@ function print_alert_box($msg, $alert = 'warning', $button = '')
 {
     echo <<<EOFnp
 <div class="col-xs-12">
-  <div class="alert alert-{$alert}" role="alert">
+  <div class="alert alert-{$alert}" role="alert" style="min-height: 65px;">
     {$button}
-    <p>{$msg}</p>
+    <div style="margin-top: 8px;">{$msg}</div>
   </div>
 </div>
 EOFnp;
@@ -203,7 +224,7 @@ function print_info_box_apply($msg)
     $value = 'Apply changes';
     $name= 'apply';
 
-    $savebutton = sprintf('<form action="' . $_SERVER['REQUEST_URI'] . '" method="post">', $_SERVER['REQUEST_URI']);
+    $savebutton = '<form method="post">';
     $savebutton .= sprintf(
         '<button type="submit" name="%s" id="%s" class="btn btn-primary pull-right" value="%s">%s</button>',
         $name,
@@ -247,27 +268,37 @@ function print_service_banner($service)
             ));
             break;
         case 'livecd':
-	    if (!is_install_media()) {
+            if (!is_install_media()) {
                 break;
             }
             print_alert_box(
-                gettext('You are currently running in LiveCD mode. A reboot will reset the configuration.') .' ' .
+                gettext('You are currently running in LiveCD mode. A reboot will reset the configuration.') . ' ' .
                 (!isset($config['system']['ssh']['noauto']) && is_process_running('sshd') ?
-                gettext('SSH remote login is enabled for the users "root" and ' .
-                '"installer" using the same password.') : gettext('SSH remote login is disabled.'))
+                gettext('SSH remote login is enabled for the users "root" and "installer" using the same password.') : '')
             );
         default:
             break;
     }
 }
 
-function get_std_save_message($raw = false)
+function get_std_save_message($plain = false)
 {
-    if ($raw == true) {
-        return 'The changes have been applied successfully.';
-    }
+    global $config;
 
-    return gettext('The changes have been applied successfully.');
+    /* we need this wrapped in gettext at least once */
+    if (!empty($config['hasync']['synchronizetoip'])) {
+        if (!$plain) {
+            $lnk_start = '<a href="status_habackup.php">';
+            $lnk_end = '</a>';
+        }
+        return sprintf(
+            gettext("The changes have been applied successfully, ".
+                    "remember to update your backup server in %sSystem: High availablity: status%s"),
+            $lnk_start, $lnk_end
+        );
+    } else {
+        return gettext('The changes have been applied successfully.');
+    }
 }
 
 function get_specialnets($only_enabled=false)
@@ -327,6 +358,7 @@ function pprint_port($port) {
 
 function gentitle($breadcrumbs, $navlevelsep = ': ')
 {
+    global $gentitle_suffix;
     $output = $breadcrumbs;
 
     if (isset($breadcrumbs[0]['name'])) {
@@ -336,7 +368,7 @@ function gentitle($breadcrumbs, $navlevelsep = ': ')
         }
     }
 
-    return join($navlevelsep, $output);
+    return join($navlevelsep, $output) . "$gentitle_suffix";
 }
 
 function address_to_pconfig($adr, &$padr, &$pmask, &$pnot, &$pbeginport, &$pendport)
@@ -430,78 +462,6 @@ function is_specialnet($net)
     return false;
 }
 
-
-
-/****f* guiconfig/display_top_tabs
- * NAME
- *   display_top_tabs - display tabs with rounded edges
- * INPUTS
- *   $text      - array of tabs
- * RESULT
- *   null
- ******/
-function display_top_tabs(& $tab_array, $no_drop_down = false)
-{
-    global $config;
-
-    $tab_array_char_limit = 92;
-
-    /*  does the user have access to this tab?
-     *  master user has access to everything.
-     *  if the user does not have access, simply
-     *  unset the tab item.
-     */
-    foreach ($tab_array as $tab_id => $ta){
-        if (!isAllowedPage($ta[2])) {
-            unset ($tab_array[$tab_id]);
-        }
-    }
-
-    $tabcharcount = 0;
-    foreach ($tab_array as $ta) {
-        $tabcharcount = $tabcharcount + strlen($ta[0]);
-    }
-
-    if ($no_drop_down == true) {
-        $tabcharcount = 0;
-        unset($tab_array_char_limit);
-    }
-
-    // If the character count of the tab names is > 670
-    // then show a select item dropdown menubox.
-    if ($tabcharcount > $tab_array_char_limit) {
-        echo "<h2>".gettext("Currently viewing: ")."</h2>";
-        echo "<select class=\"selectpicker\" name=\"TabSelect\" onchange=\"tabs_will_go(this)\" data-live-search=\"true\" data-style=\"btn-default\">\n";
-        foreach ($tab_array as $ta) {
-            if ($ta[1]=="true") {
-                $selected = " selected=\"selected\"";
-            } else {
-                $selected = "";
-            }
-            echo "<option class=\"top_tab\" value=\"{$ta[2]}\"{$selected}>{$ta['0']}</option>\n";
-        }
-        echo "</select>\n<p>&nbsp;</p>";
-        echo "<script type=\"text/javascript\">";
-        echo "\n//<![CDATA[\n";
-        echo " function tabs_will_go(obj){ document.location = obj.value; }\n";
-        echo "//]]>\n";
-        echo "</script>";
-    }  else {
-        echo "<!-- Tabbed bar code-->\n";
-        echo "<ul class=\"nav nav-tabs nav-justified\" role=\"tablist\">\n";
-        $tabscounter = 0;
-        foreach ($tab_array as $ta) {
-            if ($ta[1] == true) {
-                echo "  <li class=\"active\"><a class=\"top_tab\" href=\"{$ta[2]}\" role=\"tab\">{$ta[0]}</a></li>\n";
-            } else {
-                echo "  <li><a class=\"top_tab\" href=\"{$ta[2]}\" role=\"tab\">{$ta[0]}</a></li>\n";
-            }
-            $tabscounter++;
-        }
-        echo "</ul>\n";
-    }
-}
-
 $timezone = $config['system']['timezone'];
 if (!$timezone) {
     $timezone = 'Etc/UTC';
@@ -573,7 +533,7 @@ function get_menu_messages()
                 $noticemsg = ($value['notice'] != "" ? $value['notice'] : $value['id']);
                 $noticemsg = preg_replace("/(\"|\'|\n|<.?\w+>)/i","",$noticemsg);
                 $alert_action ="onclick=\"notice_action('acknowledge','{$key}'); jQuery(this).parent().parent().remove();\"";
-                $notice_msgs .= "<li><a href=\"#\"  {$alert_action}>{$date} [ ".htmlspecialchars($noticemsg)."]</a></li>";
+                $notice_msgs .= "<li><a href=\"#\"  {$alert_action}>{$date} [ ".htmlspecialchars($noticemsg)." ]</a></li>";
             }
 
             $notice_msgs .="</ul>";
@@ -587,7 +547,7 @@ function get_menu_messages()
         }
     } else {
         $menu_messages .= sprintf(
-          '<a href="#">%s@%s.%s</a>',
+          '<span class="navbar-text">%s@%s.%s</span>',
           $_SESSION['Username'],
           $config['system']['hostname'],
           $config['system']['domain']

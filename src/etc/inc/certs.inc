@@ -27,10 +27,8 @@
     POSSIBILITY OF SUCH DAMAGE.
 */
 
-global $openssl_digest_algs;
 $openssl_digest_algs = array("sha1", "sha224", "sha256", "sha384", "sha512");
 
-global $openssl_crl_status;
 $openssl_crl_status = array(
   OCSP_REVOKED_STATUS_NOSTATUS              => "No Status (default)",
   OCSP_REVOKED_STATUS_UNSPECIFIED           => "Unspecified",
@@ -45,7 +43,6 @@ $openssl_crl_status = array(
 function &lookup_ca($refid)
 {
     global $config;
-    $false = false;
 
     if (is_array($config['ca'])) {
         foreach ($config['ca'] as & $ca) {
@@ -55,13 +52,12 @@ function &lookup_ca($refid)
         }
     }
 
-    return $false;
+    return false;
 }
 
 function &lookup_ca_by_subject($subject)
 {
     global $config;
-    $false = false;
 
     if (is_array($config['ca'])) {
         foreach ($config['ca'] as & $ca) {
@@ -72,13 +68,12 @@ function &lookup_ca_by_subject($subject)
         }
     }
 
-    return $false;
+    return false;
 }
 
 function &lookup_cert($refid)
 {
     global $config;
-    $false = false;
 
     if (is_array($config['cert'])) {
         foreach ($config['cert'] as & $cert) {
@@ -88,13 +83,12 @@ function &lookup_cert($refid)
         }
     }
 
-    return $false;
+    return false;
 }
 
 function &lookup_crl($refid)
 {
     global $config;
-    $false = false;
 
     if (is_array($config['crl'])) {
         foreach ($config['crl'] as & $crl) {
@@ -104,23 +98,23 @@ function &lookup_crl($refid)
         }
     }
 
-    return $false;
+    return false;
 }
 
 function ca_chain_array(&$cert)
 {
-    if($cert['caref']) {
+    if ($cert['caref']) {
         $chain = array();
         $crt = lookup_ca($cert['caref']);
         $chain[] = $crt;
         while ($crt) {
             $caref = isset($crt['caref']) ? $crt['caref'] : false;
-            if($caref) {
+            if ($caref) {
                 $crt = lookup_ca($caref);
             } else {
                 $crt = false;
             }
-            if($crt) {
+            if ($crt) {
                 $chain[] = $crt;
             }
         }
@@ -202,9 +196,9 @@ function cert_import(& $cert, $crt_str, $key_str)
     $issuer = cert_get_issuer($crt_str, false);
 
     // Find my issuer unless self-signed
-    if($issuer <> $subject) {
+    if ($issuer != $subject) {
         $issuer_crt =& lookup_ca_by_subject($issuer);
-        if($issuer_crt) {
+        if ($issuer_crt) {
             $cert['caref'] = $issuer_crt['refid'];
         }
     }
@@ -217,8 +211,6 @@ function cert_create(&$cert, $caref, $keylen, $lifetime, $dn, $digest_alg = 'sha
     if (!$ca) {
         return false;
     }
-    // define temp filename to use for openssl.cnf
-    $config_filename = tempnam(sys_get_temp_dir(), 'ssl');
 
     $ca_str_crt = base64_decode($ca['crt']);
     $ca_str_key = base64_decode($ca['prv']);
@@ -229,17 +221,8 @@ function cert_create(&$cert, $caref, $keylen, $lifetime, $dn, $digest_alg = 'sha
     }
     $ca_serial = ++$ca['serial'];
 
-    $template = file_get_contents('/usr/local/etc/ssl/opnsense.cnf');
     // handle parameters which can only be set via the configuration file
-    $template_dn = "";
-    foreach (array("subjectAltName") as $dnTag) {
-        if (isset($dn[$dnTag])) {
-            $template_dn .= $dnTag . "=" . $dn[$dnTag] . "\n";
-            unset($dn[$dnTag]);
-        }
-    }
-    $template = str_replace("###OPNsense:".$x509_extensions."###", $template_dn, $template);
-    file_put_contents($config_filename, $template);
+    $config_filename = create_temp_openssl_config($dn);
 
     $args = array(
         'config' => $config_filename,
@@ -252,20 +235,20 @@ function cert_create(&$cert, $caref, $keylen, $lifetime, $dn, $digest_alg = 'sha
 
     // generate a new key pair
     $res_key = openssl_pkey_new($args);
-    if(!$res_key) {
+    if (!$res_key) {
         return false;
     }
 
     // generate a certificate signing request
     $res_csr = openssl_csr_new($dn, $res_key, $args);
-    if(!$res_csr) {
+    if (!$res_csr) {
         return false;
     }
 
     // self sign the certificate
     $res_crt = openssl_csr_sign($res_csr, $ca_res_crt, $ca_res_key, $lifetime,
            $args, $ca_serial);
-    if(!$res_crt) {
+    if (!$res_crt) {
         return false;
     }
 
@@ -279,6 +262,51 @@ function cert_create(&$cert, $caref, $keylen, $lifetime, $dn, $digest_alg = 'sha
     $cert['caref'] = $caref;
     $cert['crt'] = base64_encode($str_crt);
     $cert['prv'] = base64_encode($str_key);
+
+    // remove tempfile (template)
+    unlink($config_filename);
+
+    return true;
+}
+
+function sign_cert_csr(&$cert, $caref, $csr, $lifetime, $digest_alg, $dn)
+{
+    $ca = &lookup_ca($caref);
+    if (!$ca) {
+        return false;
+    }
+
+    $ca_str_crt = base64_decode($ca['crt']);
+    $ca_str_key = base64_decode($ca['prv']);
+    $ca_res_crt = openssl_x509_read($ca_str_crt);
+    $ca_res_key = openssl_pkey_get_private(array(0 => $ca_str_key, 1 => ""));
+    if (!$ca_res_key) {
+        return false;
+    }
+    $ca_serial = ++$ca['serial'];
+
+    // handle parameters which can only be set via the configuration file
+    $config_filename = create_temp_openssl_config($dn);
+
+    $args = array(
+        'config' => $config_filename,
+        'digest_alg' => $digest_alg,
+        'x509_extensions' => 'sign_csr',
+    );
+
+    $res_crt = openssl_csr_sign($csr, $ca_res_crt, $ca_res_key, $lifetime, $args, $ca_serial);
+    if ($res_crt === false) {
+        return false;
+    }
+
+    // export our certificate data
+    if (!openssl_x509_export($res_crt, $str_crt)) {
+        return false;
+    }
+
+    // return our certificate information
+    $cert['caref'] = $caref;
+    $cert['crt'] = base64_encode($str_crt);
 
     // remove tempfile (template)
     unlink($config_filename);
@@ -323,6 +351,7 @@ function cert_get_subject($str_crt, $decode = true)
     }
 
     ksort($components);
+    $subject = '';
     foreach ($components as $a => $v) {
         if (is_array($v)) {
             ksort($v);
@@ -371,6 +400,7 @@ function cert_get_issuer($str_crt, $decode = true)
         return "unknown";
     }
     ksort($components);
+    $issuer = '';
     foreach ($components as $a => $v) {
         if (is_array($v)) {
             ksort($v);
@@ -420,7 +450,12 @@ function cert_get_purpose($str_crt, $decode = true)
     $crt_details = openssl_x509_parse($str_crt);
     $purpose = array();
     $purpose['ca'] = (stristr($crt_details['extensions']['basicConstraints'], 'CA:TRUE') === false) ? 'No': 'Yes';
-    if (isset($crt_details['extensions']['nsCertType']) && $crt_details['extensions']['nsCertType'] == "SSL Server") {
+    if (isset($crt_details['extensions']['extendedKeyUsage']) &&
+        strstr($crt_details['extensions']['extendedKeyUsage'], 'TLS Web Server Authentication') !== false &&
+        isset($crt_details['extensions']['keyUsage']) &&
+        strpos($crt_details['extensions']['keyUsage'], 'Digital Signature') !== false &&
+        (strpos($crt_details['extensions']['keyUsage'], 'Key Encipherment') !== false ||
+        strpos($crt_details['extensions']['keyUsage'], 'Key Agreement') !== false)) {
         $purpose['server'] = 'Yes';
     } else {
         $purpose['server'] = 'No';
@@ -544,7 +579,6 @@ function cert_in_use($certref) {
 
 function crl_update(& $crl)
 {
-    global $config;
     $ca =& lookup_ca($crl['caref']);
     if (!$ca) {
         return false;
@@ -569,7 +603,6 @@ function crl_update(& $crl)
 
 function cert_revoke($cert, & $crl, $reason=OCSP_REVOKED_STATUS_UNSPECIFIED)
 {
-    global $config;
     if (is_cert_revoked($cert, $crl['refid'])) {
         return true;
     }
@@ -677,4 +710,28 @@ function cert_get_cn($crt, $isref = false)
         }
     }
     return "";
+}
+
+/**
+ * Create a temporary config file, to help with calls that require properties that can only be set via the config file.
+ *
+ * @param $dn
+ * @return bool|string The name of the temporary config file.
+ */
+function create_temp_openssl_config(&$dn)
+{
+    // define temp filename to use for openssl.cnf
+    $configFilename = tempnam(sys_get_temp_dir(), 'ssl');
+
+    $template = file_get_contents('/usr/local/etc/ssl/opnsense.cnf');
+
+    foreach (['subjectAltName', 'keyUsage', 'extendedKeyUsage', 'basicConstraints'] as $dnTag) {
+        if (isset($dn[$dnTag])) {
+            $template_dn = $dnTag . ' = ' . str_replace(array("\r", "\n"), '',$dn[$dnTag]);
+            // Overwrite the placeholders for this property
+            $template = str_replace('###OPNsense:' . $dnTag . '###', $template_dn, $template);
+        }
+    }
+    file_put_contents($configFilename, $template);
+    return $configFilename;
 }

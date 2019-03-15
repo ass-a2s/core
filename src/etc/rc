@@ -1,9 +1,32 @@
 #!/bin/sh
 
-# Copyright (c) 2014-2017 Franco Fichtner <franco@opnsense.org>
+# Copyright (c) 2014-2018 Franco Fichtner <franco@opnsense.org>
 # Copyright (c) 2004-2010 Scott Ullrich <sullrich@gmail.com>
 # Copyright (c) 2003-2004 Manuel Kasper <mk@neon1.net>
 # All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions
+# are met:
+#
+# 1. Redistributions of source code must retain the above copyright
+#    notice, this list of conditions and the following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright
+#    notice, this list of conditions and the following disclaimer in the
+#    documentation and/or other materials provided with the distribution.
+#
+# THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+# ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+# ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+# OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+# HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+# LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+# OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+# SUCH DAMAGE.
 
 stty status '^T' 2> /dev/null
 
@@ -20,14 +43,20 @@ export HOME PATH
 echo "Mounting filesystems..."
 
 # tunefs may refuse otherwise
-mount -fr /
+mount -fr / 2> /dev/null
 
 GROWFS_MARKER=/.probe.for.growfs.nano
+ROOT_IS_UFS=
 
 while read FS_PART FS_MNT FS_TYPE FS_MORE; do
 	# only tune our own file systems
 	if [ "${FS_TYPE}" != "ufs" ]; then
 		continue;
+	fi
+
+	# marker for running fsck in a bit
+	if [ "${FS_MNT}" = "/" ]; then
+		ROOT_IS_UFS=yes
 	fi
 
 	if echo "${FS_MORE}" | grep -iq nosoft; then
@@ -69,14 +98,24 @@ done < /etc/fstab
 
 attempts=0
 while [ ${attempts} -lt 3 ]; do
-	fsck -C -y /
-	fsck -C -y /
-	if mount -a 2> /dev/null; then
+	if [ -n "${ROOT_IS_UFS}" ]; then
+		fsck -C -y /
+		fsck -C -y /
+	fi
+	if mount -a; then
 		# bail if all is well
 		break
 	fi
 	attempts=$((attempts+1))
 done
+
+if kldstat -qm zfs; then
+	mount -uw /
+	zfs mount -va
+	# maybe there is a mountpoint in fstab
+	# that requires ZFS to be fully set up
+	mount -a
+fi
 
 # clear growfs marker now that we are read/write
 rm -f ${GROWFS_MARKER}
@@ -87,135 +126,40 @@ if _tmpdir=$(mktemp -d -q /.diskless.XXXXXX); then
 	rmdir ${_tmpdir}
 else
 	# fake a writeable environment in some subdirs
-	for i in conf etc home root usr var; do
+	for i in boot conf etc home root usr var; do
 		mkdir -p /tmp/.cdrom/${i}
 		mount_unionfs /tmp/.cdrom/${i} /${i}
 	done
 fi
 
 # regenerate groups and users for base
-/usr/local/etc/rc.recover base > /dev/null
+/usr/local/etc/rc.subr.d/recover base > /dev/null
+
+# generate hostid and save it permanently
+/etc/rc.d/hostid start
+/etc/rc.d/hostid_save start
 
 # set keyboard map if needed
 /etc/rc.d/syscons onestart
 
 # run the config importer during early startup
-/usr/local/etc/rc.importer -b
+/usr/local/sbin/opnsense-importer -b
 
-# Enable console output if its muted.
+# enable console output if it was muted
 /sbin/conscontrol mute off > /dev/null
 
-setup_mfs_link()
-{
-	ROOT=${1}
-	MFS=${2}
-	NAME=${3}
-
-	# Create dummy directory to for MFS-bound
-	# directories that require a persistent
-	# storage underneath to run.
-
-	if [ ! -d "${ROOT}${MFS}/${NAME}" ]; then
-		mkdir -p "${ROOT}${MFS}" "${MFS}/${NAME}"
-		mv "${MFS}/${NAME}" "${ROOT}${MFS}"
-		# create a symlink underneath as well
-		ln -s "${ROOT}${MFS}/${NAME}" "${MFS}/${NAME}"
-	fi
-}
-
-install_mfs_link()
-{
-	ROOT=${1}
-	MFS=${2}
-	NAME=${3}
-
-	# Redirect persistent, but MFS-bound
-	# directory after tmpfs mount.
-
-	mkdir -p "${MFS}"
-	ln -s "${ROOT}${MFS}/${NAME}" "${MFS}/${NAME}"
-}
-
-remove_mfs_link()
-{
-	ROOT=${1}
-	MFS=${2}
-	NAME=${3}
-
-	# Persistent copies of MFS-bound directories
-	# still there must be moved back into place.
-
-	if [ -d "${ROOT}${MFS}/${NAME}" ]; then
-		mkdir -p "${MFS}"
-		# reverse the recovery symlink before
-		# moving back the original database
-		rm -f "${MFS}/${NAME}"
-		mv "${ROOT}${MFS}/${NAME}" "${MFS}/"
-	fi
-
-	# ensure directory always exist
-	mkdir -p "${MFS}/${NAME}"
-}
-
-# pre-17.1 compat: use_mfs_tmpvar matches both patterns
-USE_MFS_VAR=`/usr/bin/grep -c 'use_mfs_.*var[^_]' /conf/config.xml`
-USE_MFS_TMP=`/usr/bin/grep -c 'use_mfs_tmp[^_]' /conf/config.xml`
-
-if [ ${USE_MFS_TMP} -ne 0 ]; then
-	mount -t tmpfs -o mode=01777 tmpfs /tmp
-fi
-
-if [ ${USE_MFS_VAR} -ne 0 ]; then
-	echo -n "Setting up memory disks..."
-
-	setup_mfs_link /root /var/cache opnsense-update
-	setup_mfs_link /root /var/log bsdinstaller
-	setup_mfs_link /root /var/cache pkg
-	setup_mfs_link /root /var/db pkg
-	setup_mfs_link /root /var crash
-
-	mount -t tmpfs tmpfs /var
-
-	install_mfs_link /root /var/cache opnsense-update
-	install_mfs_link /root /var/log bsdinstaller
-	install_mfs_link /root /var/cache pkg
-	install_mfs_link /root /var/db pkg
-	install_mfs_link /root /var crash
-
-	echo "done."
-else
-	remove_mfs_link /root /var/cache opnsense-update
-	remove_mfs_link /root /var/log bsdinstaller
-	remove_mfs_link /root /var/cache pkg
-	remove_mfs_link /root /var/db pkg
-	remove_mfs_link /root /var crash
-fi
-
-# ensure default directories in /var
-mtree -deiU -f /etc/mtree/BSD.var.dist -p /var > /dev/null
-
-# old config files are stored in this place
-mkdir -p /var/etc
-
-# clear nameserver, searchdomain and IP cache files
-rm -f /var/db/*_ip /var/db/*_ipv6 /var/db/*_cacheip /var/db/*_cacheipv6
-rm -f /var/etc/nameserver_* /var/etc/searchdomain_*
-
-# Clear all files in this directory to prevent stale state of
-# services.  At one point this also helped to prevent shutdown(8)
-# from dropping "nologin" into the directory, preventing login on
-# the next boot.
-rm -rf /var/run/*
-
-# set up and recover a crash dump before activating swap
-/usr/local/etc/rc.crashdump
-/usr/local/etc/rc.swapon
+# all sorts of maintenance tasks for /var
+/usr/local/etc/rc.subr.d/var
 
 # write /var/run/dmesg.boot
 /etc/rc.d/dmesg onestart
 
-rm -rf /tmp/*
-chmod 1777 /tmp
+# all sorts of maintenance tasks for /tmp
+/usr/local/etc/rc.subr.d/tmp
+
+# set up and recover a crash dump before activating swap
+/usr/local/etc/rc.subr.d/crashdump
+/usr/local/etc/rc.subr.d/swapon
 
 echo -n "."
 /sbin/ldconfig -elf /usr/lib /usr/local/lib /lib
@@ -232,7 +176,7 @@ fi
 echo "done."
 
 # Regenerate groups and users for packages
-/usr/local/etc/rc.recover pkg > /dev/null 2> /dev/null
+/usr/local/etc/rc.subr.d/recover pkg > /dev/null 2> /dev/null
 
 # Recreate capabilities DB
 /usr/bin/cap_mkdb /etc/login.conf
@@ -255,8 +199,9 @@ rm /var/run/booting
 
 echo -n "Root file system: "
 mount | grep ' on / ' | awk '{ print $1 }'
+date
 
-/usr/local/etc/rc.initial.banner
-/usr/local/etc/rc.livemode
+/usr/local/sbin/opnsense-shell banner
+/usr/local/etc/rc.subr.d/livemode
 
 exit 0

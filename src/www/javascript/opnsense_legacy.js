@@ -1,32 +1,46 @@
-/**
- *    Copyright (C) 2015 Deciso B.V.
+/*
+ * Copyright (C) 2015 Deciso B.V.
+ * Copyright (C) 2012 Marcello Coutinho
+ * Copyright (C) 2012 Carlos Cesario <carloscesario@gmail.com>
+ * Copyright (C) 2003-2004 Manuel Kasper <mk@neon1.net>
+ * All rights reserved.
  *
- *    All rights reserved.
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
  *
- *    Redistribution and use in source and binary forms, with or without
- *    modification, are permitted provided that the following conditions are met:
+ * 1. Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer.
  *
- *    1. Redistributions of source code must retain the above copyright notice,
- *       this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
  *
- *    2. Redistributions in binary form must reproduce the above copyright
- *       notice, this list of conditions and the following disclaimer in the
- *       documentation and/or other materials provided with the distribution.
+ * THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
+ * AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
+ * OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
  *
- *    THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
- *    INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
- *    AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
- *    AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
- *    OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- *    SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- *    INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- *    CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- *    ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- *    POSSIBILITY OF SUCH DAMAGE.
- *
- * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *    shared components to use with legacy pages
  */
+
+function notice_action(action,msgid) {
+	jQuery.ajax({
+		type: 'post',
+		cache: false,
+		url: 'index.php',
+		data: {closenotice: msgid},
+		success: function(response) {
+			jQuery('#menu_messages').html(response);
+		}
+	});
+}
 
 /**
  * hook on change events to network inputs, to maximize the subnet to 24 on ipv4 addresses
@@ -34,16 +48,16 @@
  * @param data_id: data field reference to network input field
  */
 function hook_ipv4v6(classname, data_id) {
-  $("."+classname).each(function(){
+  $("select."+classname).each(function(){
       var selectlist_id = $(this).attr('id');
       if ($(this).data(data_id) != undefined) {
         $("#"+$(this).data(data_id)).change(function(){
           var itemValue = $(this).val();
           $("#"+selectlist_id+" > option").each(function() {
               if (parseInt($(this).val()) > 32 && itemValue.indexOf(":") == -1 ) {
-                  $(this).addClass('hidden');
+                  $(this).hide()
               } else {
-                  $(this).removeClass('hidden');
+                  $(this).show();
               }
           });
           // select highest visible option
@@ -70,7 +84,7 @@ function hook_stacked_form_tables(match)
   $(match).each(function(){
       var root_node = $(this);
       if (root_node.is('table')) {
-          row_number = 0;
+          let row_number = 0;
           // traverse all <tr> tags
           root_node.find('tr').each(function(){
               // only evaluate children under this table or in <thead|tbody|..> element
@@ -83,7 +97,7 @@ function hook_stacked_form_tables(match)
                       }
                   }
                   if (children.length == 1) {
-                      // simple seperator line, colspan = 2
+                      // simple separator line, colspan = 2
                       $(this).before($(this).clone().removeAttr("id").attr('colspan', 1).addClass('hidden-sm hidden-md hidden-lg'));
                       $(this).addClass('hidden-xs');
                   } else if (children.length == 2) {
@@ -110,7 +124,7 @@ function hook_stacked_form_tables(match)
                   root_node.find('tr:visible').each(function () {
                       $(this).css("background-color", "inherit");
                       $(this).children().css("background-color", "inherit");
-                      if ( index % 2 != 0) {
+                      if (index % 2 == 0) {
                           $(this).css("background-color", root_node.data('stripe-color'));
                       }
                       if (index == 0) {
@@ -123,7 +137,7 @@ function hook_stacked_form_tables(match)
                           ++index;
                       }
                   });
-              }
+              };
               $( window ).resize(root_node.do_resize);
               root_node.do_resize();
           }

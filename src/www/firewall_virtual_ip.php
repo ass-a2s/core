@@ -1,33 +1,33 @@
 <?php
 
 /*
-    Copyright (C) 2014-2015 Deciso B.V.
-    Copyright (C) 2005 Bill Marquette <bill.marquette@gmail.com>.
-    Copyright (C) 2003-2005 Manuel Kasper <mk@neon1.net>.
-    Copyright (C) 2004-2005 Scott Ullrich <sullrich@gmail.com>
-    All rights reserved.
-
-    Redistribution and use in source and binary forms, with or without
-    modification, are permitted provided that the following conditions are met:
-
-    1. Redistributions of source code must retain the above copyright notice,
-       this list of conditions and the following disclaimer.
-
-    2. Redistributions in binary form must reproduce the above copyright
-       notice, this list of conditions and the following disclaimer in the
-       documentation and/or other materials provided with the distribution.
-
-    THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
-    INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
-    AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
-    AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
-    OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-    SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-    INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-    CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-    ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-    POSSIBILITY OF SUCH DAMAGE.
-*/
+ * Copyright (C) 2014-2015 Deciso B.V.
+ * Copyright (C) 2005 Bill Marquette <bill.marquette@gmail.com>
+ * Copyright (C) 2003-2005 Manuel Kasper <mk@neon1.net>
+ * Copyright (C) 2004-2005 Scott Ullrich <sullrich@gmail.com>
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
+ * AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
+ * OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ */
 
 require_once("guiconfig.inc");
 require_once("interfaces.inc");
@@ -53,19 +53,16 @@ function deleteVIPEntry($id) {
     }
 
     if (is_ipaddrv6($a_vip[$id]['subnet'])) {
-        $is_ipv6 = true;
+        $if_subnet = find_interface_networkv6(get_real_interface($a_vip[$id]['interface'], 'inet6'));
         $subnet = gen_subnetv6($a_vip[$id]['subnet'], $a_vip[$id]['subnet_bits']);
-        $if_subnet_bits = get_interface_subnetv6($a_vip[$id]['interface']);
-        $if_subnet = gen_subnetv6(get_interface_ipv6($a_vip[$id]['interface']), $if_subnet_bits);
+        $is_ipv6 = true;
     } else {
-        $is_ipv6 = false;
+        $if_subnet = find_interface_network(get_real_interface($a_vip[$id]['interface']));
         $subnet = gen_subnet($a_vip[$id]['subnet'], $a_vip[$id]['subnet_bits']);
-        $if_subnet_bits = get_interface_subnet($a_vip[$id]['interface']);
-        $if_subnet = gen_subnet(get_interface_ip($a_vip[$id]['interface']), $if_subnet_bits);
+        $is_ipv6 = false;
     }
 
     $subnet .= "/" . $a_vip[$id]['subnet_bits'];
-    $if_subnet .= "/" . $if_subnet_bits;
 
     if (isset($config['gateways']['gateway_item'])) {
         foreach($config['gateways']['gateway_item'] as $gateway) {
@@ -176,7 +173,7 @@ $main_buttons = array(
 
 ?>
 <body>
-  <script type="text/javascript">
+  <script>
   $( document ).ready(function() {
     // link delete buttons
     $(".act_delete").click(function(){
@@ -267,8 +264,8 @@ $main_buttons = array(
                 </thead>
                 <tbody>
 <?php
-                  $interfaces = get_configured_interface_with_descr(false, true);
-                  $interfaces['lo0'] = "Localhost";
+                  $interfaces = legacy_config_get_interfaces(array('virtual' => false));
+                  $interfaces['lo0'] = array('descr' => 'Loopback');
                   $i = 0;
                   foreach ($a_vip as $vipent):
                     if(!empty($vipent['subnet']) || !empty($vipent['range']) || !empty($vipent['subnet_bits']) || (isset($vipent['range']['from']) && !empty($vipent['range']['from']))): ?>
@@ -279,10 +276,11 @@ $main_buttons = array(
                     <td>
                       <?=($vipent['type'] == "single" || $vipent['type'] == "network") && !empty($vipent['subnet_bits']) ? $vipent['subnet']."/".$vipent['subnet_bits'] : "";?>
                       <?=$vipent['type'] == "range" ? $vipent['range']['from'] . "-" .  $vipent['range']['to'] : "";?>
-                      <?=$vipent['mode'] == "carp" ?  " (vhid {$vipent['vhid']} , freq. {$vipent['advbase']} / {$vipent['advskew']} )" : "";?>
+                      <?=$vipent['mode'] == "carp" ?  " (vhid {$vipent['vhid']} , freq. {$vipent['advbase']} / {$vipent['advskew']})" : "";?>
+                      <?=$vipent['mode'] != "carp" && !empty($vipent['vhid']) ? " (vhid {$vipent['vhid']})" : "";?>
                     </td>
                     <td>
-                      <?=htmlspecialchars($interfaces[$vipent['interface']]);?>
+                      <?= htmlspecialchars($interfaces[$vipent['interface']]['descr']) ?>
                     </td>
                     <td>
                       <?=$vipent['mode'] == "proxyarp" ? "Proxy ARP" : "";?>
@@ -294,17 +292,17 @@ $main_buttons = array(
                       <?=htmlspecialchars($vipent['descr']);?>
                     </td>
                     <td>
-                      <a id="move_<?=$i;?>" name="move_<?=$i;?>_x" data-toggle="tooltip" title="<?=gettext("move selected virtual IPs before this entry");?>" class="act_move btn btn-default btn-xs">
-                        <span class="glyphicon glyphicon-arrow-left"></span>
+                      <a id="move_<?=$i;?>" name="move_<?=$i;?>_x" data-toggle="tooltip" title="<?= html_safe(gettext("Move selected virtual IPs before this entry")) ?>" class="act_move btn btn-default btn-xs">
+                        <span class="fa fa-arrow-left fa-fw"></span>
                       </a>
-                      <a href="firewall_virtual_ip_edit.php?id=<?=$i;?>" data-toggle="tooltip" title="<?=gettext("edit virtual IP");?>" class="btn btn-default btn-xs">
-                        <span class="glyphicon glyphicon-pencil"></span>
+                      <a href="firewall_virtual_ip_edit.php?id=<?=$i;?>" data-toggle="tooltip" title="<?= html_safe(gettext('Edit')) ?>" class="btn btn-default btn-xs">
+                        <span class="fa fa-pencil fa-fw"></span>
                       </a>
-                      <a id="del_<?=$i;?>" title="<?=gettext("delete virtual IP"); ?>" data-toggle="tooltip"  class="act_delete btn btn-default btn-xs">
-                        <span class="fa fa-trash text-muted"></span>
+                      <a id="del_<?=$i;?>" title="<?= html_safe(gettext('Delete')) ?>" data-toggle="tooltip"  class="act_delete btn btn-default btn-xs">
+                        <span class="fa fa-trash fa-fw"></span>
                       </a>
-                      <a href="firewall_virtual_ip_edit.php?dup=<?=$i;?>" class="btn btn-default btn-xs" data-toggle="tooltip" title="<?=gettext("clone virtual IP");?>">
-                        <span class="fa fa-clone text-muted"></span>
+                      <a href="firewall_virtual_ip_edit.php?dup=<?=$i;?>" class="btn btn-default btn-xs" data-toggle="tooltip" title="<?= html_safe(gettext('Clone')) ?>">
+                        <span class="fa fa-clone fa-fw"></span>
                       </a>
                     </td>
                   </tr>
@@ -317,14 +315,11 @@ $main_buttons = array(
                   <tr>
                     <td colspan="5"></td>
                     <td>
-                      <a type="submit" id="move_<?=$i;?>" name="move_<?=$i;?>_x" data-toggle="tooltip" title="<?=gettext("move selected virtual IPs to end");?>" class="act_move btn btn-default btn-xs">
-                        <span class="glyphicon glyphicon-arrow-left"></span>
+                      <a type="submit" id="move_<?=$i;?>" name="move_<?=$i;?>_x" data-toggle="tooltip" title="<?= html_safe(gettext("Move selected virtual IPs to end")) ?>" class="act_move btn btn-default btn-xs">
+                        <span class="fa fa-arrow-left fa-fw"></span>
                       </a>
-                      <a href="firewall_virtual_ip_edit.php" class="btn btn-default btn-xs" data-toggle="tooltip" title="<?=gettext("add new virtual IP");?>">
-                        <span class="glyphicon glyphicon-plus"></span>
-                      </a>
-                      <a id="del_x" title="<?=gettext("delete selected virtual IPs"); ?>" data-toggle="tooltip"  class="btn btn-default btn-xs">
-                        <span class="fa fa-trash text-muted"></span>
+                      <a id="del_x" title="<?= html_safe(gettext('delete selected virtual IPs')) ?>" data-toggle="tooltip"  class="btn btn-default btn-xs">
+                        <span class="fa fa-trash fa-fw"></span>
                       </a>
                     </td>
                   </tr>

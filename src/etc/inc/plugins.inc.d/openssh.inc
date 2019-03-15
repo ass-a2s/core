@@ -2,8 +2,8 @@
 
 /*
  * Copyright (C) 2004 Scott Ullrich <sullrich@gmail.com>
- * Copyright (C) 2004 Fred Mol <fredmol@xs4all.nl>.
- * Copyright (C) 2015-2017 Franco Fichtner <franco@opnsense.org>
+ * Copyright (C) 2004 Fred Mol <fredmol@xs4all.nl>
+ * Copyright (C) 2015-2018 Franco Fichtner <franco@opnsense.org>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -41,13 +41,12 @@ function openssh_configure()
     return array(
         'earlybootup' => array('openssh_configure_do'),
         'local' => array('openssh_configure_do'),
+        'newwanip' => array('openssh_configure_do:2'),
     );
 }
 
 function openssh_services()
 {
-    global $config;
-
     $services = array();
 
     if (openssh_enabled()) {
@@ -64,12 +63,15 @@ function openssh_services()
     return $services;
 }
 
-function openssh_configure_do($verbose = false)
+function openssh_stop()
 {
-    global $config;
-
     /* if run from a shell session, `-af' and the full path is needed */
     mwexecf('/bin/pkill -af %s', '/usr/local/sbin/sshd', true);
+}
+
+function openssh_configure_do($verbose = false, $interface = '')
+{
+    global $config;
 
     $sshcfg = null;
 
@@ -81,17 +83,27 @@ function openssh_configure_do($verbose = false)
     }
 
     if ($sshcfg === null) {
+        openssh_stop();
         return;
     }
+
+    $interfaces = array();
+    if (!empty($sshcfg['interfaces'])) {
+        $interfaces = explode(',', $sshcfg['interfaces']);
+        $interfaces[] = 'lo0';
+    }
+
+    if (!empty($interface) && !in_array($interface, $interfaces)) {
+        return;
+    }
+
+    openssh_stop();
 
     /* make sshd key store */
     @mkdir('/conf/sshd', 0777, true);
 
     /* make ssh home directory */
     @mkdir('/var/empty', 0555, true);
-
-    /* Login related files. */
-    touch('/var/log/lastlog');
 
     $keys = array(
         /* .pub files are implied */
@@ -112,8 +124,8 @@ function openssh_configure_do($verbose = false)
     foreach ($keys as $name) {
         $file = "/conf/sshd/{$name}";
         if (!file_exists($file) || !file_exists("{$file}.pub")) {
-        $generate_keys = true;
-        break;
+            $generate_keys = true;
+            break;
         }
     }
 
@@ -143,9 +155,16 @@ function openssh_configure_do($verbose = false)
     $sshconf .= "UseDNS no\n";
     $sshconf .= "X11Forwarding no\n";
     $sshconf .= "PubkeyAuthentication yes\n";
-    $sshconf .= "Subsystem\tsftp\tinternal-sftp\n";
+    $sshconf .= "Subsystem sftp internal-sftp\n";
+    $sshconf .= "AllowGroups wheel";
+    if (!empty($sshcfg['group'][0])) {
+        $sshconf .= " {$sshcfg['group'][0]}";
+    }
+    $sshconf .= "\n";
     if (isset($sshcfg['permitrootlogin'])) {
         $sshconf .= "PermitRootLogin yes\n";
+    } else {
+        $sshconf .= "PermitRootLogin no\n";
     }
     if (isset($sshcfg['passwordauth'])) {
         $sshconf .= "ChallengeResponseAuthentication yes\n";
@@ -162,6 +181,21 @@ function openssh_configure_do($verbose = false)
         $sshconf .= "HostKey {$file}\n";
     }
 
+    $listeners = array();
+
+    foreach (interfaces_addresses($interfaces) as $tmpaddr => $info) {
+        if ($info['scope']) {
+            /* link-local does not seem to be supported */
+            continue;
+        }
+
+        $listeners[] = $tmpaddr;
+    }
+
+    foreach ($listeners as $listener) {
+        $sshconf .= "ListenAddress {$listener}\n";
+    }
+
     file_put_contents("/usr/local/etc/ssh/sshd_config", $sshconf);
 
     if ($verbose) {
@@ -169,7 +203,7 @@ function openssh_configure_do($verbose = false)
         flush();
     }
 
-    if (mwexecf('/usr/bin/protect -i /usr/local/sbin/sshd')) {
+    if ((count($interfaces) && !count($listeners)) || mwexecf('/usr/bin/protect -i /usr/local/sbin/sshd')) {
         if ($verbose) {
             echo "failed.\n";
         }

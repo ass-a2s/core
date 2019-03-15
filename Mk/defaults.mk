@@ -1,4 +1,4 @@
-# Copyright (c) 2016 Franco Fichtner <franco@opnsense.org>
+# Copyright (c) 2016-2018 Franco Fichtner <franco@opnsense.org>
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -32,9 +32,27 @@ PKG!=		which pkg || echo true
 GIT!=		which git || echo true
 ARCH!=		uname -p
 
-all-stub: all
-	@echo "Nothing to do."
+REPLACEMENTS=	CORE_ABI \
+		CORE_ARCH \
+		CORE_COMMIT \
+		CORE_COPYRIGHT_HOLDER \
+		CORE_COPYRIGHT_WWW \
+		CORE_COPYRIGHT_YEARS \
+		CORE_FLAVOUR \
+		CORE_HASH \
+		CORE_MAINTAINER \
+		CORE_NAME \
+		CORE_PACKAGESITE \
+		CORE_PKGVERSION \
+		CORE_PRODUCT \
+		CORE_REPOSITORY \
+		CORE_VERSION \
+		CORE_WWW
 
-force:
+MAKE_REPLACE=	# empty
+SED_REPLACE=	# empty
 
-.PHONY: force
+.for REPLACEMENT in ${REPLACEMENTS}
+MAKE_REPLACE+=	${REPLACEMENT}="${${REPLACEMENT}}"
+SED_REPLACE+=	-e "s=%%${REPLACEMENT}%%=${${REPLACEMENT}}=g"
+.endfor

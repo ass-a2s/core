@@ -30,13 +30,12 @@
  */
 
 /* XXX make this a getter function for traceability */
-$g = json_decode(file_get_contents('/usr/local/opnsense/firmware-product'), true);
+$g = json_decode(file_get_contents('/usr/local/opnsense/version/core'), true);
 
 openlog($g['product_id'], LOG_ODELAY, LOG_USER);
 register_shutdown_function('closelog');
 
 require_once("xmlparse.inc");
-require_once("crypt.inc");
 require_once("notices.inc");
 require_once("legacy_bindings.inc");
 require_once("certs.inc");
@@ -47,22 +46,6 @@ require_once("certs.inc");
  * they exist.
  */
 require_once('plugins.inc');
-
-/* make a global alias table (for faster lookups) */
-function alias_make_table($config)
-{
-    global $aliastable;
-
-    $aliastable = array();
-
-    if (isset($config['aliases']['alias'])) {
-        foreach ($config['aliases']['alias'] as $alias) {
-            if ($alias['name']) {
-                $aliastable[$alias['name']] = isset($alias['address']) ? $alias['address'] : null;
-            }
-        }
-    }
-}
 
 /**
  * parse config into array and return
@@ -80,13 +63,22 @@ function load_config_from_file($filename)
  ******/
 function parse_config()
 {
+    global $aliastable;
+
     $cnf = OPNsense\Core\Config::getInstance();
 
     // return config data as array, use old "listags" construction to mark certain elements as array (even if they're not recurring)
-    $config=$cnf->toArray(listtags());
+    $config = $cnf->toArray(listtags());
 
-    /* make alias table (for faster lookups) */
-    alias_make_table($config);
+    $aliastable = array();
+
+    foreach ((new \OPNsense\Firewall\Alias())->aliasIterator() as $alias) {
+        if (strncmp($alias['type'], 'url', 3) !== 0) {
+            $aliastable[$alias['name']] = implode(" ", explode("\n", $alias['content']));
+        } else {
+            $aliastable[$alias['name']] = "";
+        }
+    }
 
     return $config;
 }
@@ -168,15 +160,16 @@ function write_config($desc = '', $backup = true)
     }
 
     /* sync carp entries to other firewalls */
-    if ( isset($config['hasync']['synchronizetoip']) && trim($config['hasync']['synchronizetoip']) != "") {
+    if (isset($config['hasync']['synchronizetoip']) && trim($config['hasync']['synchronizetoip']) != "") {
         configd_run('filter sync load');
     }
 
     /* cleanup backups */
     cleanup_backups();
 
-    // on succesfull save, serialize config back to global.
+    /* on succesfull save, serialize config back to global */
     $config = $cnf->toArray(listtags());
+
     return $config;
 }
 
@@ -291,138 +284,47 @@ function make_config_revision_entry($desc = '')
 }
 
 /**
- * backup config to google drive and return current file list (/ info)
- *
- */
-function backup_to_google_drive()
-{
-    $cnf = OPNsense\Core\Config::getInstance();
-    if ($cnf->isValid()) {
-        $config = $cnf->object();
-        if (isset($config->system->remotebackup) && isset($config->system->remotebackup->GDriveEnabled) && $config->system->remotebackup->GDriveEnabled == "on") {
-            try {
-                $client = new Google\API\Drive();
-                $client->login($config->system->remotebackup->GDriveEmail->__toString(),
-                $config->system->remotebackup->GDriveP12key->__toString());
-            } catch (Exception $e) {
-                log_error("error connecting to Google Drive");
-                return array();
-            }
-
-            // backup source data to local strings (plain/encrypted)
-            $confdata = file_get_contents('/conf/config.xml');
-            $confdata_enc = encrypt_data($confdata, $config->system->remotebackup->GDrivePassword->__toString());
-            tagfile_reformat($confdata_enc, $confdata_enc, "config.xml");
-
-
-            // read filelist (config-*.xml)
-            try {
-                $files = $client->listFiles($config->system->remotebackup->GDriveFolderID->__toString());
-            } catch (Exception $e) {
-                log_error("error while fetching filelist from Google Drive");
-                return array();
-            }
-
-            $configfiles = array();
-            foreach ($files as $file) {
-                if (fnmatch("config-*.xml", $file['title'])) {
-                    $configfiles[$file['title']] = $file;
-                }
-            }
-            krsort($configfiles);
-
-
-            // backup new file if changed (or if first in backup)
-            $target_filename = "config-" . time() . ".xml";
-            if (count($configfiles) > 1) {
-                // compare last backup with current, only save new
-                try {
-                    $bck_data_enc_in = $client->download($configfiles[array_keys($configfiles)[0]]);
-                    $bck_data_enc = "";
-                    tagfile_deformat($bck_data_enc_in, $bck_data_enc, "config.xml");
-                    $bck_data = decrypt_data($bck_data_enc, $config->system->remotebackup->GDrivePassword->__toString());
-                    if ($bck_data == $confdata) {
-                        $target_filename = null;
-                    }
-                } catch (Exception $e) {
-                    log_error("unable to download " . $configfiles[array_keys($configfiles)[0]]->description . " from Google Drive (" . $e . ")");
-                }
-            }
-            if (!is_null($target_filename)) {
-                log_error("backup configuration as " . $target_filename);
-                try {
-                    $configfiles[$target_filename] = $client->upload($config->system->remotebackup->GDriveFolderID->__toString(), $target_filename, $confdata_enc);
-                } catch (Exception $e) {
-                    log_error("unable to upload " . $target_filename . " to Google Drive (" . $e . ")");
-                    return array();
-                }
-
-                krsort($configfiles);
-            }
-
-            // cleanup old files
-            if (isset($config->system->remotebackup->GDriveBackupCount) && is_numeric($config->system->remotebackup->GDriveBackupCount->__toString())) {
-                $fcount = 0;
-                foreach ($configfiles as $filename => $file) {
-                    if ($fcount >= $config->system->remotebackup->GDriveBackupCount->__toString()) {
-                        log_error("remove " . $filename . " from Google Drive");
-                        try {
-                            $client->delete($file);
-                        } catch (Google_Service_Exception $e) {
-                            log_error("unable to remove " . $filename . " from Google Drive");
-                        }
-                    }
-                    $fcount++;
-                }
-            }
-
-            // return filelist
-            return $configfiles;
-        }
-    }
-
-    // not configured / issue, return empty list
-    return array();
-}
-
-/**
  * find list of registered interfaces
  * @param array $filters list of filters to apply
  * @return array interfaces
  */
 function legacy_config_get_interfaces($filters = array())
 {
-    global $config;
     $interfaces = array();
-    if (isset($config['interfaces'])) {
-        foreach ($config['interfaces'] as $ifname => $iface) {
-            // undo stupid listags() turning our item into a new array, preventing certain names to be used as interface.
-            // see src/etc/inc/xmlparse.inc
-            if (isset($iface[0])) {
-                $iface = $iface[0];
+
+    foreach (config_read_array('interfaces') as $ifname => $iface) {
+        // undo stupid listags() turning our item into a new array, preventing certain names to be used as interface.
+        // see src/etc/inc/xmlparse.inc
+        if (isset($iface[0])) {
+            $iface = $iface[0];
+        }
+
+        // apply filters
+        $iface_match = true;
+        foreach ($filters as $filter_key => $filter_value) {
+            if ($filter_key == 'enable' && isset($iface[$filter_key])) {
+                $field_value = true;
+            } else {
+                $field_value = isset($iface[$filter_key]) ? $iface[$filter_key] : false;
             }
-            // apply filters
-            $iface_match = true;
-            foreach ($filters as $filter_key => $filter_value) {
-                if ($filter_key == 'enable' && isset($iface[$filter_key])) {
-                    $field_value = true;
-                } else {
-                    $field_value = isset($iface[$filter_key]) ? $iface[$filter_key] : false;
-                }
-                if ($field_value != $filter_value) {
-                    $iface_match = false;
-                    break;
-                }
-            }
-            if ($iface_match) {
-                $iface['descr'] = !empty($iface['descr']) ? $iface['descr'] : strtoupper($ifname);
-                $interfaces[$ifname] = $iface;
+            if ($field_value != $filter_value) {
+                $iface_match = false;
+                break;
             }
         }
+
+        if ($iface_match && !empty($iface)) {
+            $iface['descr'] = !empty($iface['descr']) ? $iface['descr'] : strtoupper($ifname);
+            $iface['ipaddrv6'] = !empty($iface['ipaddrv6']) ? $iface['ipaddrv6'] : null;
+            $iface['ipaddr'] = !empty($iface['ipaddr']) ? $iface['ipaddr'] : null;
+            $interfaces[$ifname] = $iface;
+        }
     }
-    uasort($interfaces, function($a, $b) {
+
+    uasort($interfaces, function ($a, $b) {
         return strnatcmp($a['descr'], $b['descr']);
     });
+
     return $interfaces;
 }
 

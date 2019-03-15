@@ -1,5 +1,11 @@
 <form>
     <field>
+        <id>rule.enabled</id>
+        <label>enabled</label>
+        <type>checkbox</type>
+        <help>enable this rule</help>
+    </field>
+    <field>
         <id>rule.sequence</id>
         <label>sequence</label>
         <type>text</type>
@@ -25,7 +31,9 @@
     <field>
         <id>rule.source</id>
         <label>source</label>
-        <type>text</type>
+        <type>select_multiple</type>
+        <style>tokenize</style>
+        <allownew>true</allownew>
         <help>source ip or network, examples 10.0.0.0/24, 10.0.0.1</help>
     </field>
     <field>
@@ -38,12 +46,14 @@
         <id>rule.src_port</id>
         <label>src-port</label>
         <type>text</type>
-        <help>source port number or well known name (imap,imaps, http,https,...)</help>
+        <help>Source port number or well known name (imap, imaps, http, https, ...), for ranges use a dash</help>
     </field>
     <field>
         <id>rule.destination</id>
         <label>destination</label>
-        <type>text</type>
+        <type>select_multiple</type>
+        <style>tokenize</style>
+        <allownew>true</allownew>
         <help>destination ip or network, examples 10.0.0.0/24, 10.0.0.1</help>
     </field>
     <field>
@@ -56,7 +66,14 @@
         <id>rule.dst_port</id>
         <label>dst-port</label>
         <type>text</type>
-        <help>destination port number or well known name (imap,imaps, http,https,...)</help>
+        <help>Destination port number or well known name (imap, imaps, http, https, ...), for ranges use a dash</help>
+    </field>
+    <field>
+        <id>rule.dscp</id>
+        <label>DSCP</label>
+        <type>select_multiple</type>
+        <advanced>true</advanced>
+        <help>Match against one or multiple DSCP values.</help>
     </field>
     <field>
         <id>rule.direction</id>

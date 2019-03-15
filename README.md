@@ -2,14 +2,14 @@ OPNsense GUI and system management
 ==================================
 
 The OPNsense project invites developers to start contributing to
-the code base.  For your own purpose or even better to join us in
+the code base.  For your own purposes or – even better – to join us in
 creating the best open source firewall available.
 
 The build process has been designed to make it easy for anyone to
 build and write code.  The main outline of the new codebase is
 available at:
 
-https://wiki.opnsense.org/index.php/Develop:Architecture
+https://docs.opnsense.org/development/architecture.html
 
 Our aim is to gradually evolve to a new codebase instead of using a
 big bang approach into something new.
@@ -60,7 +60,7 @@ Several OPTIONS exist to customise the package, e.g.:
 
 * CORE_DEPENDS: a list of required dependencies for the package
 * CORE_DEPENDS_ARCH: a list of special <ARCH>-required packages
-* CORE_ORIGIN: sets a FreeBSD compatible package/ports origin
+* CORE_ORIGIN: sets a HardenedBSD compatible package/ports origin
 * FLAVOUR: can be set to "OpenSSL" (default) or "LibreSSL"
 * CORE_COMMENT: a short description of the package
 * CORE_MAINTAINER: email of the package maintainer
@@ -71,13 +71,22 @@ Options are passed in the following form:
 
     # make package CORE_NAME=my_new_name
 
+make update
+-----------
+
+Update will pull the latest commits from the current branch from the
+upstream repository.
+
 make upgrade
 ------------
 
-Upgrade will run the package build and attempt to replace the currently
-installed package in the system.  Safety measures may prevent the target
-from succeeding.  Instructions on how to proceed in case of failures are
-given inline.
+Upgrade will run the package build and replace the currently installed
+package in the system.
+
+make collect
+------------
+
+Fetch changes from the running system for all known files.
 
 make lint
 ---------
@@ -88,9 +97,10 @@ before issuing a pull request on GitHub.
 make style
 ----------
 
-Run the CodeSniffer PSR2 style checks on the MVC code base.
+Run the PSR2 and PEP8 style checks on MVC PHP code and Python,
+respectively.
 
 make sweep
 ----------
 
-Run Linux Kernel cleanfile witespace sanitiser on all files.
+Run Linux Kernel cleanfile whitespace sanitiser on all files.

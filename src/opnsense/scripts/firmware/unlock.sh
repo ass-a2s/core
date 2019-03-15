@@ -1,6 +1,6 @@
 #!/bin/sh
 
-# Copyright (C) 2015-2016 Franco Fichtner <franco@opnsense.org>
+# Copyright (C) 2015-2017 Franco Fichtner <franco@opnsense.org>
 # Copyright (C) 2014 Deciso B.V.
 # All rights reserved.
 #
@@ -26,11 +26,19 @@
 # POSSIBILITY OF SUCH DAMAGE.
 
 PKG_PROGRESS_FILE=/tmp/pkg_upgrade.progress
-PACKAGE=$1
+PACKAGE=${1}
 
 # Truncate upgrade progress file
 : > ${PKG_PROGRESS_FILE}
 
-echo "***GOT REQUEST TO UNLOCK: $PACKAGE***" >> ${PKG_PROGRESS_FILE}
-pkg unlock -y $PACKAGE >> ${PKG_PROGRESS_FILE} 2>&1
+echo "***GOT REQUEST TO UNLOCK: ${PACKAGE}***" >> ${PKG_PROGRESS_FILE}
+if [ "${PACKAGE}" = "base" ]; then
+	echo "Unlocking base set" >> ${PKG_PROGRESS_FILE}
+	opnsense-update -bU >> ${PKG_PROGRESS_FILE} 2>&1
+elif [ "${PACKAGE}" = "kernel" ]; then
+	echo "Unlocking kernel set" >> ${PKG_PROGRESS_FILE}
+	opnsense-update -kU >> ${PKG_PROGRESS_FILE} 2>&1
+else
+	pkg unlock -y ${PACKAGE} >> ${PKG_PROGRESS_FILE} 2>&1
+fi
 echo '***DONE***' >> ${PKG_PROGRESS_FILE}

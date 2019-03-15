@@ -15,7 +15,6 @@
         <id>zone.interfaces</id>
         <label>Interfaces</label>
         <type>select_multiple</type>
-        <style>tokenize</style>
         <help><![CDATA[Select interface(s) to enable for captive portal.]]></help>
         <hint>Type or select interface.</hint>
     </field>
@@ -23,8 +22,13 @@
         <id>zone.authservers</id>
         <label>Authenticate using</label>
         <type>select_multiple</type>
-        <style>tokenize</style>
         <help><![CDATA[Select authentication methods to use, leave empty for no authentication needed.]]></help>
+    </field>
+    <field>
+        <id>zone.alwaysSendAccountingReqs</id>
+        <label>Always send accounting requests</label>
+        <type>checkbox</type>
+        <help><![CDATA[This will make the captive portal always send accounting requests, rather than just when there is a need for accounting (e.g. when there is a daily session limit).]]></help>
     </field>
     <field>
         <id>zone.authEnforceGroup</id>

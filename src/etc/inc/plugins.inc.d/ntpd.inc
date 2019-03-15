@@ -1,32 +1,32 @@
 <?php
 
 /*
-    Copyright (C) 2016 Franco Fichtner <franco@opnsense.org>
-    Copyright (C) 2004-2007 Scott Ullrich <sullrich@gmail.com>
-    Copyright (C) 2003-2004 Manuel Kasper <mk@neon1.net>
-    All rights reserved.
-
-    Redistribution and use in source and binary forms, with or without
-    modification, are permitted provided that the following conditions are met:
-
-    1. Redistributions of source code must retain the above copyright notice,
-       this list of conditions and the following disclaimer.
-
-    2. Redistributions in binary form must reproduce the above copyright
-       notice, this list of conditions and the following disclaimer in the
-       documentation and/or other materials provided with the distribution.
-
-    THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
-    INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
-    AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
-    AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
-    OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-    SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-    INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-    CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-    ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-    POSSIBILITY OF SUCH DAMAGE.
-*/
+ * Copyright (C) 2016 Franco Fichtner <franco@opnsense.org>
+ * Copyright (C) 2004-2007 Scott Ullrich <sullrich@gmail.com>
+ * Copyright (C) 2003-2004 Manuel Kasper <mk@neon1.net>
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
+ * AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
+ * OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ */
 
 function ntpd_enabled()
 {
@@ -90,7 +90,15 @@ function ntpd_configure_gps($serialport)
     if (isset($config['ntpd']['gps'])) {
         $gps_init = base64_decode($config['ntpd']['gps']['initcmd']);
     } else {
-        $gps_init = base64_decode('JFBVQlgsNDAsR1NWLDAsMCwwLDAqNTkNCiRQVUJYLDQwLEdMTCwwLDAsMCwwKjVDDQokUFVCWCw0MCxaREEsMCwwLDAsMCo0NA0KJFBVQlgsNDAsVlRHLDAsMCwwLDAqNUUNCiRQVUJYLDQwLEdTViwwLDAsMCwwKjU5DQokUFVCWCw0MCxHU0EsMCwwLDAsMCo0RQ0KJFBVQlgsNDAsR0dBLDAsMCwwLDANCiRQVUJYLDQwLFRYVCwwLDAsMCwwDQokUFVCWCw0MCxSTUMsMCwwLDAsMCo0Ng0KJFBVQlgsNDEsMSwwMDA3LDAwMDMsNDgwMCwwDQokUFVCWCw0MCxaREEsMSwxLDEsMQ==');
+        $gps_init = base64_decode(
+            'JFBVQlgsNDAsR1NWLDAsMCwwLDAqNTkNCiRQVUJYLDQwLEdMTCwwLDAsMC' .
+            'wwKjVDDQokUFVCWCw0MCxaREEsMCwwLDAsMCo0NA0KJFBVQlgsNDAsVlRH' .
+            'LDAsMCwwLDAqNUUNCiRQVUJYLDQwLEdTViwwLDAsMCwwKjU5DQokUFVCWC' .
+            'w0MCxHU0EsMCwwLDAsMCo0RQ0KJFBVQlgsNDAsR0dBLDAsMCwwLDANCiRQ' .
+            'VUJYLDQwLFRYVCwwLDAsMCwwDQokUFVCWCw0MCxSTUMsMCwwLDAsMCo0Ng' .
+            '0KJFBVQlgsNDEsMSwwMDA3LDAwMDMsNDgwMCwwDQokUFVCWCw0MCxaREEs' .
+            'MSwxLDEsMQ=='
+        );
     }
 
     /* XXX: Why not file_put_contents to the device */
@@ -101,7 +109,7 @@ function ntpd_configure_gps($serialport)
     if (intval(`grep -c '^gps0' /etc/remote`) == 0) {
         $gpsbaud = '4800';
         if (is_array($config['ntpd']) && is_array($config['ntpd']['gps']) && !empty($config['ntpd']['gps']['speed'])) {
-            switch($config['ntpd']['gps']['speed']) {
+            switch ($config['ntpd']['gps']['speed']) {
                 case '16':
                     $gpsbaud = '9600';
                     break;
@@ -143,15 +151,15 @@ function ntpd_configure_pps($serialport)
 
 function ntpd_configure_start($verbose = false)
 {
-    ntpd_configure_do(true, $verbose);
+    ntpd_configure_do($verbose, true);
 }
 
 function ntpd_configure_defer($verbose = false)
 {
-    ntpd_configure_do(false, $verbose);
+    ntpd_configure_do($verbose, false);
 }
 
-function ntpd_configure_do($start_ntpd = true, $verbose = false)
+function ntpd_configure_do($verbose = false, $start_ntpd = true)
 {
     global $config;
 
@@ -170,7 +178,6 @@ function ntpd_configure_do($start_ntpd = true, $verbose = false)
 
     $driftfile = '/var/db/ntpd.drift';
     $statsdir = '/var/log/ntp';
-    $gps_device = '/dev/gps0';
 
     @mkdir($statsdir, 0755);
 
@@ -186,7 +193,7 @@ function ntpd_configure_do($start_ntpd = true, $verbose = false)
     $ntpcfg .= 'tos orphan ';
     if (!empty($config['ntpd']['orphan'])) {
         $ntpcfg .= $config['ntpd']['orphan'];
-    }else{
+    } else {
         $ntpcfg .= '12';
     }
     $ntpcfg .= "\n";
@@ -216,7 +223,7 @@ function ntpd_configure_do($start_ntpd = true, $verbose = false)
         }
         if (!empty($config['ntpd']['pps']['flag3'])) {
             $ntpcfg .= ' flag3 1';
-        } else{
+        } else {
             $ntpcfg .= ' flag3 0';
         }
         if (!empty($config['ntpd']['pps']['flag4'])) {
@@ -225,6 +232,9 @@ function ntpd_configure_do($start_ntpd = true, $verbose = false)
         if (!empty($config['ntpd']['pps']['refid'])) {
             $ntpcfg .= ' refid ';
             $ntpcfg .= $config['ntpd']['pps']['refid'];
+        }
+        if (!empty($config['ntpd']['pps']['stratum'])) {
+            $ntpcfg .= ' stratum ' . $config['ntpd']['pps']['stratum'];
         }
         $ntpcfg .= "\n";
     }
@@ -237,7 +247,9 @@ function ntpd_configure_do($start_ntpd = true, $verbose = false)
         $ntpcfg .= "\n";
         $ntpcfg .= "# GPS Setup\n";
         $ntpcfg .= 'server 127.127.20.0 mode ';
-        if (!empty($config['ntpd']['gps']['nmea']) || !empty($config['ntpd']['gps']['speed']) || !empty($config['ntpd']['gps']['subsec'])) {
+        if (!empty($config['ntpd']['gps']['nmea']) ||
+            !empty($config['ntpd']['gps']['speed']) ||
+            !empty($config['ntpd']['gps']['subsec'])) {
             if (!empty($config['ntpd']['gps']['nmea'])) {
                 $ntpmode = (int) $config['ntpd']['gps']['nmea'];
             }
@@ -248,7 +260,7 @@ function ntpd_configure_do($start_ntpd = true, $verbose = false)
                 $ntpmode += 128;
             }
             $ntpcfg .= (string) $ntpmode;
-        } else{
+        } else {
             $ntpcfg .= '0';
         }
         $ntpcfg .= ' minpoll 4 maxpoll 4';
@@ -270,7 +282,7 @@ function ntpd_configure_do($start_ntpd = true, $verbose = false)
         }
         if (!empty($config['ntpd']['gps']['flag1'])) {
             $ntpcfg .= ' flag1 1';
-        } else{
+        } else {
             $ntpcfg .= ' flag1 0';
         }
         if (!empty($config['ntpd']['gps']['flag2'])) {
@@ -278,7 +290,7 @@ function ntpd_configure_do($start_ntpd = true, $verbose = false)
         }
         if (!empty($config['ntpd']['gps']['flag3'])) {
             $ntpcfg .= ' flag3 1';
-        } else{
+        } else {
             $ntpcfg .= ' flag3 0';
         }
         if (!empty($config['ntpd']['gps']['flag4'])) {
@@ -287,6 +299,9 @@ function ntpd_configure_do($start_ntpd = true, $verbose = false)
         if (!empty($config['ntpd']['gps']['refid'])) {
             $ntpcfg .= ' refid ';
             $ntpcfg .= $config['ntpd']['gps']['refid'];
+        }
+        if (!empty($config['ntpd']['gps']['stratum'])) {
+            $ntpcfg .= ' stratum ' . $config['ntpd']['gps']['stratum'];
         }
         $ntpcfg .= "\n";
     }
@@ -310,8 +325,13 @@ function ntpd_configure_do($start_ntpd = true, $verbose = false)
     unset($ts);
 
     $ntpcfg .= "\n\n";
-    $ntpcfg .= "disable monitor\n"; //prevent NTP reflection attack, see https://ics-cert.us-cert.gov/advisories/ICSA-14-051-04
-    if (!empty($config['ntpd']['clockstats']) || !empty($config['ntpd']['loopstats']) || !empty($config['ntpd']['peerstats'])) {
+
+    /* prevent NTP reflection attack, see https://ics-cert.us-cert.gov/advisories/ICSA-14-051-04 */
+    $ntpcfg .= "disable monitor\n";
+
+    if (!empty($config['ntpd']['clockstats']) ||
+        !empty($config['ntpd']['loopstats']) ||
+        !empty($config['ntpd']['peerstats'])) {
         $ntpcfg .= "enable stats\n";
         $ntpcfg .= 'statistics';
         if (!empty($config['ntpd']['clockstats'])) {
@@ -402,11 +422,15 @@ function ntpd_configure_do($start_ntpd = true, $verbose = false)
         }
     }
 
+    if (!empty($config['ntpd']['custom_options'])) {
+        $ntpcfg .= "\n# custom options\n{$config['ntpd']['custom_options']}\n";
+    }
+
     file_put_contents('/var/etc/ntpd.conf', $ntpcfg);
 
     if (!$start_ntpd) {
         /* write out the config and delay startup */
-        mwexec_bg('/usr/local/sbin/ntpdate_sync_once.sh');
+        mwexec_bg('/usr/local/etc/inc/plugins.inc.d/ntpd/ntpdate_sync_once.sh');
         if ($verbose) {
             echo "deferred.\n";
         }
@@ -418,8 +442,8 @@ function ntpd_configure_do($start_ntpd = true, $verbose = false)
 
     /* start opentpd, set time now and use new config */
     mwexecf(
-      '/usr/local/sbin/ntpd -g -c %s -p %s',
-      array('/var/etc/ntpd.conf', '/var/run/ntpd.pid')
+        '/usr/local/sbin/ntpd -g -c %s -p %s',
+        array('/var/etc/ntpd.conf', '/var/run/ntpd.pid')
     );
 
     if ($verbose) {

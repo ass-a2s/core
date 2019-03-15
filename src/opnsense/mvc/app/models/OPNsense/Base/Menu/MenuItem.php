@@ -61,7 +61,7 @@ class MenuItem
     private $sortOrder = 0;
 
     /**
-     * layout information, glyphicon
+     * layout information, icon
      * @var string
      */
     private $CssClass = "";
@@ -300,7 +300,7 @@ class MenuItem
 
     /**
      * append node, reuses existing node if it's already there.
-     * @param $id item id
+     * @param string $id item id
      * @param array $properties named array property list, there should be setters for every option
      * @return MenuItem
      */

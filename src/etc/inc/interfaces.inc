@@ -1,6 +1,7 @@
 <?php
 
 /*
+ * Copyright (C) 2015-2018 Franco Fichtner <franco@opnsense.org>
  * Copyright (C) 2004-2008 Scott Ullrich <sullrich@gmail.com>
  * Copyright (C) 2008-2009 Ermal Luçi
  * Copyright (C) 2005 Espen Johansen
@@ -65,7 +66,6 @@ function convert_ipv6_to_128bit($ipv6)
         return false;
     }
 
-    $ip6arr = array();
     $ip6prefix = Net_IPv6::uncompress($ipv6);
     $ip6arr = explode(":", $ip6prefix);
     /* binary presentation of the prefix for all 128 bits. */
@@ -78,12 +78,11 @@ function convert_ipv6_to_128bit($ipv6)
 
 function convert_128bit_to_ipv6($ip6bin)
 {
-    if (strlen($ip6bin) <> 128) {
+    if (strlen($ip6bin) != 128) {
         return false;
     }
 
     $ip6arr = array();
-    $ip6binarr = array();
     $ip6binarr = str_split($ip6bin, 16);
     foreach ($ip6binarr as $binpart) {
         $ip6arr[] = dechex(bindec($binpart));
@@ -251,130 +250,6 @@ function interface_vlan_configure(&$vlan)
     return $vlanif;
 }
 
-function interface_qinq_configure(&$vlan, $fd = null)
-{
-    global $config;
-
-    if (!is_array($vlan)) {
-        log_error(sprintf('QinQ compat VLAN: called with wrong options. Problems with config!'));
-        return;
-    }
-
-    $qinqif = $vlan['if'];
-    $tag = $vlan['tag'];
-    if (empty($qinqif)) {
-        log_error(sprintf('interface_qinq_configure called with if undefined.'));
-        return;
-    }
-
-    if (!does_interface_exist($qinqif)) {
-        log_error(sprintf('interface_qinq_configure called with invalid if.'));
-        return;
-    }
-
-    $vlanif = interface_vlan_configure($vlan);
-
-    if ($fd == null) {
-        $exec = true;
-        $fd = fopen('/tmp/netgraphcmd', 'w');
-    } else {
-        $exec = false;
-    }
-
-    /* make sure the parent is converted to ng_vlan(4) and is up */
-    interfaces_bring_up($qinqif);
-
-    if (!empty($vlanif) && does_interface_exist($vlanif)) {
-        exec("/usr/sbin/ngctl msg {$vlanif}qinq: gettable", $result);
-        if (empty($result)) {
-            fwrite($fd, "mkpeer {$vlanif}: vlan lower downstream\n");
-            fwrite($fd, "name {$vlanif}:lower {$vlanif}qinq\n");
-            fwrite($fd, "connect {$vlanif}: {$vlanif}qinq: upper nomatch\n");
-        }
-    } else {
-        fwrite($fd, "mkpeer {$vlanif}: vlan lower downstream\n");
-        fwrite($fd, "name {$vlanif}:lower {$vlanif}qinq\n");
-        fwrite($fd, "connect {$vlanif}: {$vlanif}qinq: upper nomatch\n");
-    }
-
-    if (!stristr($qinqif, "_vlan")) {
-        mwexec("/sbin/ifconfig {$qinqif} promisc\n");
-    }
-
-    $macaddr = get_interface_mac($qinqif);
-    if (!empty($vlan['members'])) {
-        $members = explode(" ", $vlan['members']);
-        foreach ($members as $qtag) {
-            $qinq = array();
-            $qinq['tag'] = $qtag;
-            $qinq['if'] = $vlanif;
-            interface_qinq2_configure($qinq, $fd, $macaddr);
-        }
-    }
-    if ($exec) {
-        fclose($fd);
-        mwexec('/usr/sbin/ngctl -f /tmp/netgraphcmd');
-    }
-
-    interfaces_bring_up($qinqif);
-    if (!empty($vlan['members'])) {
-        $members = explode(" ", $vlan['members']);
-        foreach ($members as $qif) {
-            interfaces_bring_up("{$vlanif}_{$qif}");
-        }
-    }
-
-    return $vlanif;
-}
-
-function interfaces_qinq_configure($verbose = false)
-{
-    global $config;
-
-    if (!isset($config['qinqs']['qinqentry'])) {
-        return;
-    }
-
-    if ($verbose) {
-        echo 'Configuring QinQ interfaces...';
-        flush();
-    }
-
-    foreach ($config['qinqs']['qinqentry'] as $qinq) {
-        interface_qinq_configure($qinq);
-    }
-
-    if ($verbose) {
-        echo "done.\n";
-    }
-}
-
-function interface_qinq2_configure(&$qinq, $fd, $macaddr)
-{
-    global $config;
-
-    if (!is_array($qinq)) {
-        log_error(sprintf('QinQ compat VLAN: called with wrong options. Problems with config!'));
-        return;
-    }
-
-    $if = $qinq['if'];
-    $tag = $qinq['tag'];
-    $vlanif = "{$if}_{$tag}";
-    if (empty($if)) {
-        log_error(sprintf('interface_qinq2_configure called with if undefined.'));
-        return;
-    }
-
-    fwrite($fd, "mkpeer {$if}qinq: eiface {$if}{$tag} ether\n");
-    fwrite($fd, "name {$if}qinq:{$if}{$tag} {$if}h{$tag}\n");
-    fwrite($fd, "msg {$if}qinq: addfilter { vlan={$tag} hook=\"{$if}{$tag}\" }\n");
-    fwrite($fd, "msg {$if}h{$tag}: setifname \"{$vlanif}\"\n");
-    fwrite($fd, "msg {$if}h{$tag}: set {$macaddr}\n");
-
-    return $vlanif;
-}
-
 function interfaces_test_wireless_capability($if, $cap)
 {
     $caps = array('hostap' => 'HOSTAP', 'adhoc' => 'IBSS');
@@ -403,9 +278,7 @@ function interfaces_create_wireless_clones($verbose = false)
         flush();
     }
 
-    $iflist = get_configured_interface_list();
-
-    foreach ($iflist as $if) {
+    foreach (array_keys(get_configured_interface_with_descr()) as $if) {
         $realif = $config['interfaces'][$if]['if'];
         if (is_interface_wireless($realif)) {
             interface_wireless_clone(interface_get_wireless_clone($realif), $config['interfaces'][$if]);
@@ -464,7 +337,6 @@ function interfaces_bridge_configure($checkmember = 0, $realif = '')
                     }
                 }
             }
-            /* XXX: Maybe we should report any errors?! */
             interface_bridge_configure($bridge, $checkmember);
             $i++;
         }
@@ -473,14 +345,12 @@ function interfaces_bridge_configure($checkmember = 0, $realif = '')
 
 function interface_bridge_configure(&$bridge, $checkmember = 0)
 {
-    global $config;
-
     if (!is_array($bridge)) {
         return;
     }
 
     if (empty($bridge['members'])) {
-        log_error(sprintf('No members found on %s', $bridge['bridgeif']));
+        log_error("No members found on {$bridge['bridgeif']}");
         return;
     }
 
@@ -522,7 +392,7 @@ function interface_bridge_configure(&$bridge, $checkmember = 0)
         $bridge['bridgeif'] = $bridgeif;
     }
 
-    $checklist = get_configured_interface_list();
+    $checklist = get_configured_interface_with_descr();
 
     /* Add interfaces to bridge */
     foreach ($members as $member) {
@@ -597,10 +467,10 @@ function interface_bridge_configure(&$bridge, $checkmember = 0)
         }
     }
 
-    if ($bridge['maxaddr'] <> "") {
+    if ($bridge['maxaddr'] != '') {
         mwexec("/sbin/ifconfig {$bridgeif} maxaddr " . escapeshellarg($bridge['maxaddr']));
     }
-    if ($bridge['timeout'] <> "") {
+    if ($bridge['timeout'] != '') {
         mwexec("/sbin/ifconfig {$bridgeif} timeout " . escapeshellarg($bridge['timeout']));
     }
     if (!empty($bridge['span'])) {
@@ -708,8 +578,6 @@ function interfaces_lagg_configure($realif = '', $verbose = false)
 
 function interface_lagg_configure(&$lagg)
 {
-    global $config;
-
     if (!is_array($lagg)) {
         return -1;
     }
@@ -718,6 +586,7 @@ function interface_lagg_configure(&$lagg)
     if (!count($members)) {
         return -1;
     }
+
     $interface_stats = legacy_interfaces_details();
 
     if (!empty($lagg['laggif'])) {
@@ -736,7 +605,6 @@ function interface_lagg_configure(&$lagg)
     } else {
         $laggif = legacy_interface_create('lagg');
     }
-
 
     // determine mtu value to use, either the provided one for the lagg or smallest of it's children
     $mtu = null;
@@ -821,16 +689,12 @@ function interfaces_gre_configure($checkparent = 0, $verbose = false, $realif = 
 /* NOTE: $grekey is not used but useful for passing this function to array_walk. */
 function interface_gre_configure(&$gre, $grekey = "")
 {
-    global $config;
-
     if (!is_array($gre)) {
         return -1;
     }
 
     $realif = get_real_interface($gre['if']);
-    $realifip = get_interface_ip($gre['if']);
 
-    /* make sure the parent interface is up */
     interfaces_bring_up($realif);
 
     if (file_exists("/var/run/booting") || !(empty($gre['greif']))) {
@@ -842,10 +706,14 @@ function interface_gre_configure(&$gre, $grekey = "")
     }
 
     /* Do not change the order here for more see gre(4) NOTES section. */
-    mwexec("/sbin/ifconfig {$greif} tunnel {$realifip} " . escapeshellarg($gre['remote-addr']));
+    if (is_ipaddrv6($gre['remote-addr'])) {
+        $realifip = is_ipaddr($gre['if']) ? $gre['if'] : get_interface_ipv6($gre['if']);
+        mwexecf('/sbin/ifconfig %s inet6 tunnel %s %s', array($greif, $realifip, $gre['remote-addr']));
+    } else {
+        $realifip = is_ipaddr($gre['if']) ? $gre['if'] : get_interface_ip($gre['if']);
+        mwexecf('/sbin/ifconfig %s tunnel %s %s', array($greif, $realifip, $gre['remote-addr']));
+    }
     if ((is_ipaddrv6($gre['tunnel-local-addr'])) || (is_ipaddrv6($gre['tunnel-remote-addr']))) {
-        /* XXX: The prefixlen argument for tunnels of ipv6 is useless since it needs to be 128 as enforced by kernel */
-        //mwexec("/sbin/ifconfig {$greif} inet6 " . escapeshellarg($gre['tunnel-local-addr']) . " " . escapeshellarg($gre['tunnel-remote-addr']) . " prefixlen /" . escapeshellarg($gre['tunnel-remote-net']));
         mwexec("/sbin/ifconfig {$greif} inet6 " . escapeshellarg($gre['tunnel-local-addr']) . " " . escapeshellarg($gre['tunnel-remote-addr']) . " prefixlen 128");
     } else {
         mwexec("/sbin/ifconfig {$greif} " . escapeshellarg($gre['tunnel-local-addr']) . " " . escapeshellarg($gre['tunnel-remote-addr']) . " netmask " . gen_subnet_mask($gre['tunnel-remote-net']));
@@ -958,12 +826,8 @@ function interface_gif_configure(&$gif, $gifkey = "")
         }
         $realifgw = get_interface_gateway_v6($gif['if']);
     }
-    /* make sure the parent interface is up */
-    if ($realif) {
-        interfaces_bring_up($realif);
-    } else {
-        log_error('could not bring realif up -- variable not defined -- interface_gif_configure()');
-    }
+
+    interfaces_bring_up($realif);
 
     if (file_exists("/var/run/booting") || !(empty($gif['gifif']))) {
         legacy_interface_destroy($gif['gifif']);
@@ -974,10 +838,12 @@ function interface_gif_configure(&$gif, $gifkey = "")
     }
 
     /* Do not change the order here for more see gif(4) NOTES section. */
-    mwexec("/sbin/ifconfig {$gifif} tunnel {$realifip} " . escapeshellarg($gif['remote-addr']));
+    if (is_ipaddrv6($gif['remote-addr'])) {
+        mwexecf('/sbin/ifconfig %s inet6 tunnel %s %s', array($gifif, $realifip, $gif['remote-addr']));
+    } else {
+        mwexecf('/sbin/ifconfig %s tunnel %s %s', array($gifif, $realifip, $gif['remote-addr']));
+    }
     if ((is_ipaddrv6($gif['tunnel-local-addr'])) || (is_ipaddrv6($gif['tunnel-remote-addr']))) {
-        /* XXX: The prefixlen argument for tunnels of ipv6 is useless since it needs to be 128 as enforced by kernel */
-        //mwexec("/sbin/ifconfig {$gifif} inet6 " . escapeshellarg($gif['tunnel-local-addr']) . " " . escapeshellarg($gif['tunnel-remote-addr']) . " prefixlen /" . escapeshellarg($gif['tunnel-remote-net']));
         mwexec("/sbin/ifconfig {$gifif} inet6 " . escapeshellarg($gif['tunnel-local-addr']) . " " . escapeshellarg($gif['tunnel-remote-addr']) . " prefixlen 128");
     } else {
         mwexec("/sbin/ifconfig {$gifif} " . escapeshellarg($gif['tunnel-local-addr']) . " " . escapeshellarg($gif['tunnel-remote-addr']) . " netmask " . gen_subnet_mask($gif['tunnel-remote-net']));
@@ -992,11 +858,10 @@ function interface_gif_configure(&$gif, $gifkey = "")
 
     interfaces_bring_up($gifif);
 
-    $iflist = get_configured_interface_list();
-    foreach ($iflist as $ifname) {
+    foreach (array_keys(get_configured_interface_with_descr()) as $ifname) {
         if ($config['interfaces'][$ifname]['if'] == $gifif) {
             if (get_interface_gateway($ifname) || get_interface_gateway_v6($ifname)) {
-                system_routing_configure($ifname);
+                system_routing_configure(false, $ifname);
                 break;
             }
         }
@@ -1023,17 +888,12 @@ function interfaces_configure($verbose = false)
     interfaces_create_wireless_clones($verbose);
     interfaces_lagg_configure('', $verbose);
     interfaces_vlan_configure('', $verbose);
-    interfaces_qinq_configure($verbose);
 
-    $iflist = get_configured_interface_with_descr();
     $delayed_list = array();
     $bridge_list = array();
     $track6_list = array();
 
-    /* This is needed to speedup interfaces on bootup. */
-    $reload = !file_exists('/var/run/booting');
-
-    foreach ($iflist as $if => $ifname) {
+    foreach (get_configured_interface_with_descr() as $if => $ifname) {
         $realif = $config['interfaces'][$if]['if'];
         if (strstr($realif, "bridge")) {
             $bridge_list[$if] = $ifname;
@@ -1042,7 +902,7 @@ function interfaces_configure($verbose = false)
         } elseif (!empty($config['interfaces'][$if]['ipaddrv6']) && $config['interfaces'][$if]['ipaddrv6'] == 'track6') {
             $track6_list[$if] = $ifname;
         } else {
-            interface_configure($if, $reload, false, $verbose);
+            interface_configure($verbose, $if);
         }
     }
 
@@ -1057,7 +917,7 @@ function interfaces_configure($verbose = false)
     interfaces_bridge_configure(1);
 
     foreach ($track6_list as $if => $ifname) {
-        interface_configure($if, $reload, false, $verbose);
+        interface_configure($verbose, $if);
     }
 
     interfaces_vips_configure('', $verbose);
@@ -1065,23 +925,16 @@ function interfaces_configure($verbose = false)
     interfaces_gif_configure(2, $verbose);
 
     foreach ($delayed_list as $if => $ifname) {
-        interface_configure($if, $reload, false, $verbose);
+        interface_configure($verbose, $if);
     }
 
     interfaces_bridge_configure(2);
 
     foreach ($bridge_list as $if => $ifname) {
-        interface_configure($if, $reload, false, $verbose);
+        interface_configure($verbose, $if);
     }
 
     interfaces_group_setup();
-
-    if ($reload) {
-        system_routing_configure('', $verbose);
-        ipsec_configure_do($verbose);
-        plugins_configure('dns', $verbose);
-        services_dhcpd_configure('all', array(), $verbose);
-    }
 }
 
 function interface_vip_bring_down($vip)
@@ -1112,185 +965,167 @@ function interface_bring_down($interface = "wan", $ifacecfg = false)
 {
     global $config;
 
-    if (!isset($config['interfaces'][$interface])) {
+    if (!isset($config['interfaces'][$interface]) || ($ifacecfg !== false && !is_array($ifacecfg))) {
         return;
     }
 
-    /*
-     * NOTE: The $realifv6 is needed when WANv4 is type PPP and v6 is DHCP and the option v6 from v4 is used.
-     * In this case the real $realif of v4 is different from that of v6 for operation.
-     * Keep this in mind while doing changes here!
-     */
     if ($ifacecfg === false) {
-        $ifcfg = $config['interfaces'][$interface];
-        $ppps = array();
-        if (isset($config['ppps']['ppp'])) {
-            $ppps = $config['ppps']['ppp'];
-        }
         $realif = get_real_interface($interface);
-        $realifv6 = get_real_interface($interface, "inet6", true);
-    } elseif (!is_array($ifacecfg)) {
-        log_error('Wrong parameters used during interface_bring_down()');
+        $realifv6 = get_real_interface($interface, "inet6");
         $ifcfg = $config['interfaces'][$interface];
-        $ppps = array();
-        if (isset($config['ppps']['ppp'])) {
-            $ppps = $config['ppps']['ppp'];
-        }
-        $realif = get_real_interface($interface);
-        $realifv6 = get_real_interface($interface, "inet6", true);
+        $ppps = isset($config['ppps']['ppp']) ? $config['ppps']['ppp'] : array();
     } else {
         $ifcfg = $ifacecfg['ifcfg'];
         $ppps = $ifacecfg['ppps'];
-        if (isset($ifacecfg['ifcfg']['realif'])) {
-            $realif = $ifacecfg['ifcfg']['realif'];
-            /* XXX: Any better way? */
-            $realifv6 = $realif;
-        } else {
-            $realif = get_real_interface($interface);
-            $realifv6 = get_real_interface($interface, "inet6", true);
+        /* When $ifacecfg is passed, it should contain the original interfaces */
+        $realif = $ifacecfg['ifcfg']['realif'];
+        $realifv6 = $ifacecfg['ifcfg']['realifv6'];
+    }
+
+    $ifcfg['ipaddrv6'] = empty($ifcfg['ipaddrv6']) ? null : $ifcfg['ipaddrv6'];
+
+    if (!in_array($interface, array('openvpn', 'ppp', 'ipsec', 'enc0'))) {
+        /**
+         * NOTE: The $realifv6 is needed when WANv4 is type PPP and v6 is DHCP and the option v6 from v4 is used.
+         * XXX: we kept this in place due to dropping the $realv6iface parameter from get_real_interface(),
+        */
+        if (!in_array($ifcfg['ipaddrv6'], array('6rd', '6to4', 'pppoe', 'ppp', 'l2tp', 'pptp'))) {
+            $ipaddr = empty($ifcfg['ipaddr']) ? null : $ifcfg['ipaddr'];
+            if (in_array($ipaddr, array('pppoe', 'ppp', 'l2tp', 'pptp'))) {
+                foreach ($ppps as $ppp) {
+                    if ($ifcfg['if'] == $ppp['if']) {
+                        $ports = explode(',', $ppp['ports']);
+                        foreach ($ports as $pid => $parent_if) {
+                            $realifv6 = $parent_if;
+                            break;
+                        }
+                    }
+                }
+            }
         }
     }
 
+    if (isset($config['virtualip']['vip'])) {
+        foreach ($config['virtualip']['vip'] as $vip) {
+            if ($vip['interface'] == $interface && $vip['mode'] != 'carp') {
+                /**
+                 * only disable non carp aliases, net.inet.carp.ifdown_demotion_factor should do it's work
+                 * when a carp interface goes down
+                 */
+                interface_vip_bring_down($vip);
+            }
+        }
+    }
+
+    /*
+     * hostapd and wpa_supplicant do not need to be running when the
+     * interface is down.  They will also use 100% CPU if running after
+     * the wireless clone gets deleted.
+     */
+    if (!empty($ifcfg['wireless'])) {
+        kill_wpasupplicant($realif);
+        kill_hostapd($realif);
+    }
+
     switch ($ifcfg['ipaddr']) {
-        case "ppp":
-        case "pppoe":
-        case "pptp":
-        case "l2tp":
-            if (is_array($ppps) && count($ppps)) {
-                foreach ($ppps as $pppid => $ppp) {
-                    if ($realif == $ppp['if']) {
-                        if (isset($ppp['ondemand']) && !$destroy) {
-                            configd_run("interface reconfigure {$interface}");
+        case 'ppp':
+        case 'pppoe':
+        case 'pptp':
+        case 'l2tp':
+            if (!empty($ppps)) {
+                foreach ($ppps as $ppp) {
+                    if ($ifcfg['if'] == $ppp['if']) {
+                        if (isset($ppp['ondemand']) && $ifacecfg === false) {
+                            configdp_run('interface reconfigure', array($interface));
                             break;
                         }
-                        if (isvalidpid("/var/run/{$ppp['type']}_{$interface}.pid")) {
-                            killbypid("/var/run/{$ppp['type']}_{$interface}.pid");
-                            sleep(2);
-                        }
+                        killbypid("/var/run/{$ppp['type']}_{$interface}.pid", 'TERM', true);
                         @unlink("/var/etc/mpd_{$interface}.conf");
                         break;
                     }
                 }
+                return;
             }
             break;
-        case "dhcp":
-            kill_dhclient_process($realif);
-            @unlink("/var/etc/dhclient_{$interface}.conf");
-            if (does_interface_exist("$realif")) {
-                mwexec("/sbin/ifconfig " . escapeshellarg($realif) . " delete", true);
-                interface_ipalias_cleanup($interface);
-                if ($destroy) {
-                    legacy_interface_flags($realif, 'down');
-                }
-                mwexec("/usr/sbin/arp -d -i " . escapeshellarg($realif) . " -a");
-            }
+        case 'dhcp':
+            killbypid("/var/run/dhclient.{$realif}.pid", 'TERM', true);
             break;
         default:
-            if (does_interface_exist("$realif")) {
-                mwexec("/sbin/ifconfig " . escapeshellarg($realif) . " delete", true);
-                interface_ipalias_cleanup($interface);
-                if ($destroy) {
-                    legacy_interface_flags($realif, 'down');
-                }
-                mwexec("/usr/sbin/arp -d -i " . escapeshellarg($realif) . " -a");
-            }
             break;
     }
 
-    $track6 = array();
-    if (isset($ifcfg['ipaddrv6'])) {
-        $ipaddrv6 = $ifcfg['ipaddrv6'];
-    } else {
-        $ipaddrv6 = null;
+    $track6 = link_interface_to_track6($interface);
+    if (count($track6)) {
+        /* bring down radvd and dhcp6 on these interfaces */
+        services_dhcpd_configure(false, 'inet6', $track6);
     }
-    switch ($ipaddrv6) {
-        case "slaac":
-        case "dhcp6":
-            killbypid("/var/run/dhcp6c_{$realif}.pid", 'KILL', true);
-            @unlink("/var/etc/dhcp6c_{$interface}.conf");
-            if (does_interface_exist($realifv6)) {
-                $ip6 = find_interface_ipv6($realifv6);
-                if (is_ipaddrv6($ip6) && $ip6 != "::") {
-                    mwexec("/sbin/ifconfig " . escapeshellarg($realifv6) . " inet6 {$ip6} delete", true);
-                }
-                interface_ipalias_cleanup($interface, "inet6");
-                if ($destroy) {
-                    legacy_interface_flags($realif, 'down');
-                }
-                mwexec("/usr/sbin/arp -d -i " . escapeshellarg($realif) . " -a");
-            }
-            $track6 = link_interface_to_track6($interface);
-            break;
-        case "6rd":
-        case "6to4":
-            $realif = "{$interface}_stf";
-            if (does_interface_exist("$realif")) {
-                $ip6 = get_interface_ipv6($interface);
-                if (is_ipaddrv6($ip6)) {
-                    mwexec("/sbin/ifconfig " . escapeshellarg($realif) . " inet6 {$ip6} delete", true);
-                }
-                interface_ipalias_cleanup($interface, "inet6");
-                if ($destroy) {
-                    legacy_interface_flags($realif, 'down');
-                }
-            }
-            $track6 = link_interface_to_track6($interface);
+
+    switch ($ifcfg['ipaddrv6']) {
+        case 'slaac':
+        case 'dhcp6':
+            killbypid("/var/run/dhcp6c_{$realifv6}.pid", 'TERM', true);
             break;
         default:
-            if (does_interface_exist("$realif")) {
-                $ip6 = get_interface_ipv6($interface);
-                if (is_ipaddrv6($ip6)) {
-                    mwexec("/sbin/ifconfig " . escapeshellarg($realif) . " inet6 {$ip6} delete", true);
-                }
-                if (!empty($ifcfg['ipaddrv6']) && is_ipaddrv6($ifcfg['ipaddrv6'])) {
-                    mwexec("/sbin/ifconfig " . escapeshellarg($realif) . " inet6 {$ifcfg['ipaddrv6']} delete", true);
-                }
-                interface_ipalias_cleanup($interface, "inet6");
-                if ($destroy) {
-                    legacy_interface_flags($realif, 'down');
-                }
-                mwexec("/usr/sbin/arp -d -i " . escapeshellarg($realif) . " -a");
-            }
-            $track6 = link_interface_to_track6($interface);
             break;
     }
 
-    if (!empty($track6) && is_array($track6)) {
-        /* Bring down radvd and dhcp6 on these interfaces */
-        services_dhcpd_configure('inet6', $track6);
+    $pfctlflush = array();
+    $arpflush = array();
+
+    if (does_interface_exist($realif)) {
+        $arpflush[$realif] = 1;
+
+        if (!empty(trim(@file_get_contents("/tmp/{$realif}_router")))) {
+            $pfctlflush[$realif] = 1;
+        }
+
+        $ip4 = find_interface_ip($realif);
+        if (is_ipaddrv4($ip4)) {
+            mwexecf('/sbin/ifconfig %s delete %s', array($realif, $ip4));
+        }
     }
 
-    $old_router = '';
-    if (file_exists("/tmp/{$realif}_router")) {
-        $old_router = trim(file_get_contents("/tmp/{$realif}_router"));
+    if (does_interface_exist($realifv6)) {
+        /*
+         * XXX So we flush ARP on IPv6 here!  But why?
+         *
+         * Either we want to flush NDP or both ARP
+         * and NDP, but then the same goes for IPv4.
+         */
+        $arpflush[$realifv6] = 1;
+
+        if (!empty(trim(@file_get_contents("/tmp/{$realifv6}_routerv6")))) {
+            $pfctlflush[$realifv6] = 1;
+        }
+
+        $ip6 = find_interface_ipv6($realifv6);
+        if (is_ipaddrv6($ip6)) {
+            mwexecf('/sbin/ifconfig %s inet6 %s delete', array($realifv6, $ip6));
+        }
     }
 
-    if (!empty($old_router)) {
-        log_error("Clearing states to old gateway {$old_router}.");
-        mwexec("/sbin/pfctl -i " . escapeshellarg($realif) . " -Fs");
+    foreach (array_keys($arpflush) as $dev) {
+        mwexecf('/usr/sbin/arp -d -i %s -a', $dev);
     }
 
+    foreach (array_keys($pfctlflush) as $dev) {
+        log_error("Clearing states for stale {$interface} route on {$dev}");
+        mwexecf('/sbin/pfctl -i %s -Fs', $dev);
+    }
+
+    /* clear stale state files associated with this interface */
     @unlink("/var/db/{$interface}_ip");
     @unlink("/var/db/{$interface}_ipv6");
     @unlink("/var/db/{$interface}_cacheip");
     @unlink("/var/db/{$interface}_cacheipv6");
     @unlink("/var/etc/nameserver_{$realif}");
-    @unlink("/var/etc/nameserver_v6{$realif}");
+    @unlink("/var/etc/nameserver_v6{$realifv6}");
     @unlink("/var/etc/searchdomain_{$realif}");
-    @unlink("/var/etc/searchdomain_v6{$realif}");
+    @unlink("/var/etc/searchdomain_v6{$realifv6}");
     @unlink("/tmp/{$realif}up");
-    @unlink("/tmp/{$realif}upv6");
+    @unlink("/tmp/{$realifv6}upv6");
     @unlink("/tmp/{$realif}_router");
-    @unlink("/tmp/{$realif}_routerv6");
-
-    /* hostapd and wpa_supplicant do not need to be running when the interface is down.
-     * They will also use 100% CPU if running after the wireless clone gets deleted. */
-    if (isset($ifcfg['wireless']) && is_array($ifcfg['wireless'])) {
-        kill_hostapd($realif);
-        mwexec(kill_wpasupplicant($realif));
-    }
-
-    return;
+    @unlink("/tmp/{$realifv6}_routerv6");
 }
 
 function interfaces_ptpid_used($ptpid)
@@ -1336,13 +1171,8 @@ function interface_ppps_configure($interface)
         return 0;
     }
 
-    // mpd5 requires a /var/spool/lock directory for PPP modem links.
-    @mkdir("/var/spool/lock", 0777, true);
-
     // mpd5 modem chat script expected in the same directory as the mpd_xxx.conf files
-    if (!file_exists('/var/etc/mpd.script')) {
-        symlink('/usr/local/sbin/mpd.script', '/var/etc/mpd.script');
-    }
+    @copy('/usr/local/opnsense/scripts/interfaces/mpd.script', '/var/etc/mpd.script');
 
     if (isset($config['ppps']['ppp'])) {
         foreach ($config['ppps']['ppp'] as $pppid => $ppp) {
@@ -1352,7 +1182,7 @@ function interface_ppps_configure($interface)
         }
     }
     if (!isset($ppp) || $ifcfg['if'] != $ppp['if']) {
-        log_error(sprintf('Can\'t find PPP config for %s in interface_ppps_configure().', $ifcfg['if']));
+        log_error("Can't find PPP config for {$ifcfg['if']} in interface_ppps_configure().");
         return 0;
     }
 
@@ -1399,22 +1229,22 @@ function interface_ppps_configure($interface)
                 }
 
                 if (!is_ipaddr($localips[$pid])) {
-                    log_error("Could not get a Local IP address for PPTP/L2TP link on {$port} in interfaces_ppps_configure. Using 0.0.0.0 ip!");
+                    log_error("Could not get a Local IP address for PPTP/L2TP link on {$port}. Using 0.0.0.0!");
                     $localips[$pid] = "0.0.0.0";
                 }
                 if (!is_ipaddr($gateways[$pid])) {
-                    log_error(sprintf('Could not get a PPTP/L2TP Remote IP address from %s for %s in interfaces_ppps_configure.', $dhcp_gateway, $gway));
+                    log_error("Could not get a Remote IP address for PPTP/L2TP link on {$port}.");
                     return 0;
                 }
                 break;
             case "ppp":
                 if (!file_exists("{$port}")) {
-                    log_error(sprintf('Device %s does not exist. PPP link cannot start without the modem device.', $port));
+                    log_error("Device {$port} does not exist. PPP link cannot start without the modem device.");
                     return 0;
                 }
                 break;
             default:
-                log_error(sprintf('Unkown %s configured as ppp interface.', $ppp['type']));
+                log_error("Unkown {$ppp['type']} configured as ppp interface.");
                 break;
         }
     }
@@ -1472,8 +1302,8 @@ EOD;
         $mpdconf .= "  set iface enable tcpmssfix\n";
     }
 
-    $mpdconf .= "  set iface up-script /usr/local/sbin/ppp-linkup\n";
-    $mpdconf .= "  set iface down-script /usr/local/sbin/ppp-linkdown\n";
+    $mpdconf .= "  set iface up-script /usr/local/opnsense/scripts/interfaces/ppp-linkup.sh\n";
+    $mpdconf .= "  set iface down-script /usr/local/opnsense/scripts/interfaces/ppp-linkdown.sh\n";
     if ($ppp['type'] == "ppp") {
         if (is_ipaddr($ppp['localip'])) {
             $localip = $ppp['localip'];
@@ -1612,31 +1442,22 @@ EOD;
         $mpdconf .= "\topen\n";
     }
 
-
-    /* Generate mpd.conf. If mpd_[interface].conf exists in the conf path, then link to it instead of generating a fresh conf file. */
-    if (file_exists("/conf/mpd_{$interface}.conf")) {
-        @symlink("/conf/mpd_{$interface}.conf", "/var/etc/mpd_{$interface}.conf");
-    } else {
-        $fd = fopen("/var/etc/mpd_{$interface}.conf", "w");
-        if (!$fd) {
-            log_error(sprintf('Error: cannot open mpd_%s.conf in interface_ppps_configure().', $interface));
-            return 0;
-        }
-        // Write out mpd_ppp.conf
-        fwrite($fd, $mpdconf);
-        fclose($fd);
-        unset($mpdconf);
+    $fd = fopen("/var/etc/mpd_{$interface}.conf", "w");
+    if (!$fd) {
+        log_error("Error: cannot open mpd_{$interface}.conf in interface_ppps_configure().");
+        return 0;
     }
+
+    // Write out mpd_ppp.conf
+    fwrite($fd, $mpdconf);
+    fclose($fd);
+    unset($mpdconf);
 
     // Create the uptime log if requested and if it doesn't exist already, or delete it if it is no longer requested.
     if (isset($ppp['uptime'])) {
-        if (!file_exists("/conf/{$ifcfg['if']}.log")) {
-            file_put_contents("/conf/{$ifcfg['if']}.log", '');
-        }
+        @touch("/conf/{$ifcfg['if']}.log");
     } else {
-        if (file_exists("/conf/{$ifcfg['if']}.log")) {
-            @unlink("/conf/{$ifcfg['if']}.log");
-        }
+        @unlink("/conf/{$ifcfg['if']}.log");
     }
 
     /* clean up old lock files */
@@ -1699,15 +1520,21 @@ function interfaces_carp_setup($verbose = false)
     }
 
     if (!empty($carp_sync_int) && isset($config['hasync']['pfsyncenabled'])) {
-        if (isset($config['hasync']['pfsyncpeerip']) && is_ipaddr($config['hasync']['pfsyncpeerip'])) {
-            $syncpeer = "syncpeer " . $config['hasync']['pfsyncpeerip'];
+        if (!empty($config['hasync']['pfsyncpeerip']) && is_ipaddrv4($config['hasync']['pfsyncpeerip'])) {
+            $syncpeer = "syncpeer {$config['hasync']['pfsyncpeerip']}";
         } else {
             $syncpeer = "-syncpeer";
         }
 
-        mwexec("/sbin/ifconfig pfsync0 syncdev {$carp_sync_int} {$syncpeer} up", false);
+        $intf_stats = legacy_interfaces_details();
+
+        mwexec("/sbin/ifconfig pfsync0 syncdev {$carp_sync_int} {$syncpeer} up");
+
+        if (!empty($intf_stats[$carp_sync_int]['mtu'])) {
+            mwexec("/sbin/ifconfig pfsync0 mtu {$intf_stats[$carp_sync_int]['mtu']}");
+        }
     } else {
-        mwexec("/sbin/ifconfig pfsync0 -syncdev -syncpeer down", false);
+        mwexec('/sbin/ifconfig pfsync0 -syncdev -syncpeer down');
     }
 
     if ($verbose) {
@@ -1757,28 +1584,9 @@ function interface_proxyarp_configure($interface = '')
     }
 }
 
-function interface_ipalias_cleanup($interface, $inet = 'inet4')
-{
-    global $config;
-
-    if (isset($config['virtualip']['vip'])) {
-        foreach ($config['virtualip']['vip'] as $vip) {
-            if ($vip['mode'] == 'ipalias' && $vip['interface'] == $interface) {
-                if ($inet == 'inet6' && is_ipaddrv6($vip['subnet'])) {
-                    interface_vip_bring_down($vip);
-                } elseif ($inet == 'inet4' && is_ipaddrv4($vip['subnet'])) {
-                    interface_vip_bring_down($vip);
-                }
-            }
-        }
-    }
-}
-
 function interfaces_vips_configure($interface = '', $verbose = false)
 {
     global $config;
-
-    $paa = array();
 
     if (isset($config['virtualip']['vip'])) {
         $carp_setuped = false;
@@ -1822,13 +1630,14 @@ function interface_ipalias_configure(&$vip)
         return;
     }
 
-    $if = get_real_interface($vip['interface']);
+    $if = escapeshellarg(get_real_interface($vip['interface']));
     $af = "inet";
     if (is_ipaddrv6($vip['subnet'])) {
         $af = "inet6";
     }
     $vhid = !empty($vip['vhid']) ? "vhid " . escapeshellarg($vip['vhid']) : "";
-    mwexec("/sbin/ifconfig " . escapeshellarg($if) ." {$af} ". escapeshellarg($vip['subnet']) ."/" . escapeshellarg($vip['subnet_bits']) . " alias ". $vhid);
+    $gateway = !empty($vip['gateway']) ? escapeshellarg($vip['gateway']) . " " : "";
+    mwexec("/sbin/ifconfig " . $if ." {$af} ". escapeshellarg($vip['subnet']) ."/" . escapeshellarg($vip['subnet_bits']) . " alias ".$gateway. $vhid);
 }
 
 function interface_carp_configure(&$vip)
@@ -1847,24 +1656,8 @@ function interface_carp_configure(&$vip)
     /* NOTE: Maybe its useless nowdays */
     $realif = get_real_interface($vip['interface']);
     if (!does_interface_exist($realif)) {
-        file_notice("CARP", sprintf(gettext("Interface specified for the virtual IP address %s does not exist. Skipping this VIP."), $vip['subnet']), "Firewall: Virtual IP", "");
+        file_notice(sprintf(gettext("Interface specified for the virtual IP address %s does not exist. Skipping this VIP."), $vip['subnet']));
         return;
-    }
-
-    if (is_ipaddrv4($vip['subnet'])) {
-        /* Ensure a IP on this interface exists prior to configuring CARP. */
-        $ww_subnet_ip = find_interface_ip($realif);
-        if (!is_ipaddrv4($ww_subnet_ip)) {
-            file_notice("CARP", sprintf(gettext("Sorry but we could not find a required assigned ip address on the interface for the virtual IP address %s."), $vip['subnet']), "Firewall: Virtual IP", "");
-            return;
-        }
-    } elseif (is_ipaddrv6($vip['subnet'])) {
-        /* Ensure a IP on this interface exists prior to configuring CARP. */
-        $ww_subnet_ip = find_interface_ipv6($realif);
-        if (!is_ipaddrv6($ww_subnet_ip)) {
-            file_notice("CARP", sprintf(gettext("Sorry but we could not find a required assigned ip address on the interface for the virtual IPv6 address %s."), $vip['subnet']), "Firewall: Virtual IP", "");
-            return;
-        }
     }
 
     $vip_password = $vip['password'];
@@ -1898,10 +1691,9 @@ function interface_carp_configure(&$vip)
 
 function interface_wireless_clone($realif, $wlcfg)
 {
-    global $config;
-
-    /*   Check to see if interface has been cloned as of yet.
-     *   If it has not been cloned then go ahead and clone it.
+    /*
+     * Check to see if interface has been cloned as of yet.
+     * If it has not been cloned then go ahead and clone it.
      */
     $needs_clone = false;
     if (isset($wlcfg['wireless']) && is_array($wlcfg['wireless'])) {
@@ -1909,7 +1701,7 @@ function interface_wireless_clone($realif, $wlcfg)
     } else {
         $wlcfg_mode = $wlcfg['mode'];
     }
-    switch($wlcfg_mode) {
+    switch ($wlcfg_mode) {
         case "hostap":
             $mode = "wlanmode hostap";
             break;
@@ -1925,15 +1717,15 @@ function interface_wireless_clone($realif, $wlcfg)
         exec("/sbin/ifconfig " . escapeshellarg($realif), $output, $ret);
         $ifconfig_str = implode($output);
         if (($wlcfg_mode == "hostap") && (! preg_match("/hostap/si", $ifconfig_str))) {
-            log_error(sprintf('Interface %s changed to hostap mode', $realif));
+            log_error("Interface {$realif} changed to hostap mode");
             $needs_clone = true;
         }
         if (($wlcfg_mode == "adhoc") && (! preg_match("/adhoc/si", $ifconfig_str))) {
-            log_error(sprintf('Interface %s changed to adhoc mode', $realif));
+            log_error("Interface {$realif} changed to adhoc mode");
             $needs_clone = true;
         }
         if (($wlcfg_mode == "bss") && (preg_match("/hostap|adhoc/si", $ifconfig_str))) {
-            log_error(sprintf('Interface %s changed to infrastructure mode', $realif));
+            log_error("Interface {$realif} changed to infrastructure mode");
             $needs_clone = true;
         }
     } else {
@@ -1946,10 +1738,10 @@ function interface_wireless_clone($realif, $wlcfg)
             legacy_interface_destroy($realif);
         }
 
-        log_error(sprintf('Cloning new wireless interface %s', $realif));
+        log_error("Cloning new wireless interface {$realif}");
         exec("/sbin/ifconfig wlan create wlandev {$baseif} {$mode} bssid name {$realif} 2>&1", $out, $ret);
-        if ($ret <> 0) {
-            log_error(sprintf('Failed to clone interface %s with error code %s, output %s', $baseif, $ret, $out[0]));
+        if ($ret != 0) {
+            log_error("Failed to clone interface {$baseif} with error code {$ret}, output {$out[0]}");
             return false;
         }
         file_put_contents("/tmp/{$realif}_oldmac", get_interface_mac($realif));
@@ -1981,9 +1773,7 @@ function interface_sync_wireless_clones(&$ifcfg, $sync_changes = false)
 
     $baseif = interface_get_wireless_base($ifcfg['if']);
 
-    // Sync shared settings for assigned clones
-    $iflist = get_configured_interface_list(false, true);
-    foreach ($iflist as $if) {
+    foreach (array_keys(legacy_config_get_interfaces(['virtual' => false])) as $if) {
         if ($baseif == interface_get_wireless_base($config['interfaces'][$if]['if']) && $ifcfg['if'] != $config['interfaces'][$if]['if']) {
             if (isset($config['interfaces'][$if]['wireless']['standard']) || $sync_changes) {
                 foreach ($shared_settings as $setting) {
@@ -2068,11 +1858,10 @@ function interface_wireless_configure($if, &$wl, &$wlcfg)
     fwrite($fd_set, "# wireless configuration script.\n\n");
 
     /* set values for /path/program */
-    $hostapd = "/usr/sbin/hostapd";
-    $wpa_supplicant = "/usr/sbin/wpa_supplicant";
-    $ifconfig = "/sbin/ifconfig";
-    $sysctl = "/sbin/sysctl";
-    $killall = "/usr/bin/killall";
+    $wpa_supplicant = '/usr/local/sbin/wpa_supplicant';
+    $hostapd = '/usr/local/sbin/hostapd';
+    $ifconfig = '/sbin/ifconfig';
+    $sysctl = '/sbin/sysctl';
 
     /* Set all wireless ifconfig variables (split up to get rid of needed checking) */
 
@@ -2183,7 +1972,7 @@ function interface_wireless_configure($if, &$wl, &$wlcfg)
     /* set up wep if enabled */
     $wepset = "";
     if (isset($wlcfg['wep']['enable']) && is_array($wlcfg['wep']['key'])) {
-        switch($wlcfg['wpa']['auth_algs']) {
+        switch ($wlcfg['wpa']['auth_algs']) {
             case "1":
                 $wepset .= "authmode open wepmode on ";
                 break;
@@ -2206,14 +1995,14 @@ function interface_wireless_configure($if, &$wl, &$wlcfg)
         $wlcmd[] = "authmode open wepmode off ";
     }
 
+    kill_wpasupplicant($if);
     kill_hostapd($if);
-    mwexec(kill_wpasupplicant("{$if}"));
 
     /* generate wpa_supplicant/hostap config if wpa is enabled */
     switch ($wlcfg['mode']) {
         case 'bss':
             if (isset($wlcfg['wpa']['enable'])) {
-                $wpa .= <<<EOD
+                $wpa = <<<EOD
 ctrl_interface=/var/run/wpa_supplicant
 ctrl_interface_group=0
 ap_scan=1
@@ -2240,7 +2029,7 @@ EOD;
                 $wpa_passphrase = "";
             }
             if (isset($wlcfg['wpa']['enable'])) {
-                $wpa .= <<<EOD
+                $wpa = <<<EOD
 interface={$if}
 driver=bsd
 logger_syslog=-1
@@ -2469,59 +2258,16 @@ EOD;
 
 function kill_hostapd($interface)
 {
-    return killbypid("/var/run/hostapd_{$interface}.pid");
+    killbypid("/var/run/hostapd_{$interface}.pid");
 }
 
 function kill_wpasupplicant($interface)
 {
-    return "/bin/pkill -f \"wpa_supplicant .*{$interface}\\.conf\"\n";
-}
-
-function find_dhclient_process($interface)
-{
-    if ($interface) {
-        $pid = `/bin/pgrep -axf "dhclient: {$interface}"`;
-    } else {
-        $pid = 0;
-    }
-
-    return intval($pid);
-}
-
-function kill_dhclient_process($interface)
-{
-    if (empty($interface) || !does_interface_exist($interface)) {
-        return;
-    }
-
-    killbypid(find_dhclient_process($interface), 'TERM', true);
-}
-
-function interface_vlan_mtu_configured($realhwif, $mtu)
-{
-    global $config;
-
-    if (isset($config['vlans']['vlan'])) {
-        foreach ($config['vlans']['vlan'] as $vlan) {
-            if ($vlan['if'] != $realhwif) {
-                continue;
-            }
-            $assignedport = convert_real_interface_to_friendly_interface_name($vlan['vlanif']);
-            if (!empty($assignedport) && !empty($config['interfaces'][$assignedport]['mtu'])) {
-                if (intval($config['interfaces'][$assignedport]['mtu']) > $mtu) {
-                    $mtu = $portmtu;
-                }
-            }
-        }
-    }
-
-    return $mtu;
+    mwexec("/bin/pkill -f \"wpa_supplicant .*{$interface}\\.conf\"\n");
 }
 
 function interface_virtual_create($interface)
 {
-    global $config;
-
     if (strstr($interface, '_vlan')) {
         interfaces_vlan_configure($vlan);
     } elseif (substr($interface, 0, 3) == 'gre') {
@@ -2538,8 +2284,29 @@ function interface_virtual_create($interface)
     }
 }
 
+function interface_static_configure($interface, $wancfg)
+{
+    if (empty($wancfg['ipaddr']) || !is_ipaddrv4($wancfg['ipaddr']) || $wancfg['subnet'] == '') {
+        return;
+    }
 
-function interface_configure($interface = 'wan', $reloadall = false, $linkupevent = false, $verbose = false)
+    $realif = get_real_interface($interface);
+
+    mwexecf('/sbin/ifconfig %s inet %s/%s', array($realif, $wancfg['ipaddr'], $wancfg['subnet']));
+}
+
+function interface_static6_configure($interface, $wancfg)
+{
+    if (empty($wancfg['ipaddrv6']) || !is_ipaddrv6($wancfg['ipaddrv6']) || $wancfg['subnetv6'] == '') {
+        return;
+    }
+
+    $realif = get_real_interface($interface, 'inet6');
+
+    mwexecf('/sbin/ifconfig %s inet6 %s prefixlen %s', array($realif, $wancfg['ipaddrv6'], $wancfg['subnetv6']));
+}
+
+function interface_configure($verbose = false, $interface = 'wan', $reload = false, $linkupevent = false)
 {
     global $config;
 
@@ -2549,7 +2316,7 @@ function interface_configure($interface = 'wan', $reloadall = false, $linkupeven
         return;
     }
 
-    $wandescr = !empty($wancfg['descr']) ? strtoupper($wancfg['descr']) : strtoupper($interface);
+    $wandescr = !empty($wancfg['descr']) ? $wancfg['descr'] : strtoupper($interface);
 
     if ($verbose) {
         echo sprintf('Configuring %s interface...', $wandescr);
@@ -2602,50 +2369,56 @@ function interface_configure($interface = 'wan', $reloadall = false, $linkupeven
     }
 
     /* Disable Accepting router advertisements unless specifically requested */
-    mwexec("/sbin/ifconfig " . escapeshellarg($realif) . " inet6 -accept_rtadv");
+    mwexecf('/sbin/ifconfig %s inet6 -accept_rtadv', array($realif));
 
     /* wireless configuration? */
-    if (isset($wancfg['wireless']) && is_array($wancfg['wireless'])) {
+    if (isset($wancfg['wireless']) && is_array($wancfg['wireless']) && !$linkupevent) {
         interface_wireless_configure($realif, $wancfg, $wancfg['wireless']);
     }
 
-    $mac = get_interface_mac($realhwif);
     /*
      * Don't try to reapply the spoofed MAC if it's already applied.
-     * When ifconfig link is used, it cycles the interface down/up, which triggers
-     * the interface config again, which attempts to spoof the MAC again,
-     * which cycles the link again...
+     * When ifconfig link is used, it cycles the interface down/up,
+     * which triggers the interface config again, which attempts to
+     * spoof the MAC again which cycles the link again...
      */
-    if (!empty($wancfg['spoofmac']) && ($wancfg['spoofmac'] != $mac)) {
-        mwexec("/sbin/ifconfig " . escapeshellarg($realhwif) .
-            " link " . escapeshellarg($wancfg['spoofmac']));
+    if (!empty($wancfg['spoofmac']) && strcasecmp($wancfg['spoofmac'], get_interface_mac($realhwif))) {
+        mwexecf('/sbin/ifconfig %s link %s', array($realhwif, $wancfg['spoofmac']));
 
         /* All vlans need to spoof their parent mac address, too. */
         if (isset($config['vlans']['vlan'])) {
             foreach ($config['vlans']['vlan'] as $vlan) {
                 if ($vlan['if'] == $realhwif) {
-                    mwexec("/sbin/ifconfig " . escapeshellarg($vlan['vlanif']) .
-                        " link " . escapeshellarg($wancfg['spoofmac']));
+                    mwexecf('/sbin/ifconfig %s link %s', array($vlan['vlanif'], $wancfg['spoofmac']));
                 }
             }
         }
     }
 
-    /* media */
-    if (!empty($wancfg['media']) || !empty($wancfg['mediaopt'])) {
-        $cmd = "/sbin/ifconfig " . escapeshellarg($realhwif);
-        if (!empty($wancfg['media'])) {
-            $cmd .= " media " . escapeshellarg($wancfg['media']);
-        }
+    /* skip vlans for media setup and only apply when changed */
+    if (!stristr($realhwif, "_vlan") && (!empty($wancfg['media']) || !empty($wancfg['mediaopt']))) {
+        $intf_details = legacy_interface_details($realhwif);
+        $media_changed = stripos($intf_details['media_raw'], $wancfg['media']) == false;
         if (!empty($wancfg['mediaopt'])) {
-            $cmd .= " mediaopt " . escapeshellarg($wancfg['mediaopt']);
+            $media_changed |= stripos($intf_details['media_raw'], $wancfg['mediaopt']) == false;
         }
-        mwexec($cmd);
+        if ($media_changed) {
+            $cmd = "/sbin/ifconfig " . escapeshellarg($realhwif);
+            if (!empty($wancfg['media'])) {
+                $cmd .= " media " . escapeshellarg($wancfg['media']);
+            }
+            if (!empty($wancfg['mediaopt'])) {
+                $cmd .= " mediaopt " . escapeshellarg($wancfg['mediaopt']);
+            }
+            mwexec($cmd);
+        }
     }
     // apply interface hardware settings (tso, lro, ..)
     configure_interface_hardware($realhwif);
 
-    $tunnelif = substr($realif, 0, 3);
+    /* XXX kludge for now related to #3280 */
+    $tunnelif = in_array(substr($realif, 0, 3), array('gif', 'gre', 'ovp'));
+
     switch ($wancfg['ipaddr']) {
         case 'dhcp':
             interface_dhcp_configure($interface);
@@ -2657,12 +2430,10 @@ function interface_configure($interface = 'wan', $reloadall = false, $linkupeven
             interface_ppps_configure($interface);
             break;
         default:
-            /* XXX: Kludge for now related to #3280 */
-            if (!in_array($tunnelif, array("gif", "gre", "ovp"))) {
-                if (is_ipaddrv4($wancfg['ipaddr']) && $wancfg['subnet'] <> "") {
-                    legacy_interface_setaddress($realif, "{$wancfg['ipaddr']}/{$wancfg['subnet']}");
-                }
+            if ($tunnelif) {
+                break;
             }
+            interface_static_configure($interface, $wancfg);
             break;
     }
 
@@ -2670,6 +2441,11 @@ function interface_configure($interface = 'wan', $reloadall = false, $linkupeven
         switch ($wancfg['ipaddrv6']) {
             case 'slaac':
             case 'dhcp6':
+                /* XXX why not tell the function... */
+                if (isset($wancfg['dhcp6usev4iface'])) {
+                    break;
+                }
+                interface_dhcpv6_prepare($interface, $wancfg);
                 interface_dhcpv6_configure($interface, $wancfg);
                 break;
             case '6rd':
@@ -2679,18 +2455,21 @@ function interface_configure($interface = 'wan', $reloadall = false, $linkupeven
                 interface_6to4_configure($interface, $wancfg);
                 break;
             case 'track6':
-                interface_track6_configure($interface, $wancfg, $reloadall || $linkupevent);
+                interface_track6_configure($interface, $wancfg, $reload || $linkupevent);
                 break;
             default:
-                /* XXX: Kludge for now related to #3280 */
-                if (!in_array($tunnelif, array("gif", "gre", "ovp"))) {
-                    if (is_ipaddrv6($wancfg['ipaddrv6']) && $wancfg['subnetv6'] <> "") {
-                        mwexec("/sbin/ifconfig " . escapeshellarg($realif) . " inet6 {$wancfg['ipaddrv6']} prefixlen " . escapeshellarg($wancfg['subnetv6']));
-                    }
+                if ($tunnelif) {
+                    break;
                 }
+                /* XXX why not tell the function... */
+                if (isset($wancfg['dhcp6usev4iface'])) {
+                    break;
+                }
+                interface_static6_configure($interface, $wancfg);
                 break;
         }
     }
+
     $intf_stats = legacy_interface_stats();
     if (!empty($wancfg['mtu'])) {
         if (stristr($realif, "_vlan")) {
@@ -2745,100 +2524,70 @@ function interface_configure($interface = 'wan', $reloadall = false, $linkupeven
         if (!empty($grouptmp)) {
             array_walk($grouptmp, 'interface_group_add_member');
         }
-
-        if ($interface == 'lan') {
-            /* make new hosts file */
-            system_hosts_generate();
-        }
-
-        if ($reloadall == true) {
-            system_routing_configure($interface);
-            ipsec_configure_do();
-            plugins_configure('dns');
-            services_dhcpd_configure();
-            configd_run("dyndns reload {$interface}");
-            configd_run("rfc2136 reload {$interface}");
-        }
     }
-
-    interfaces_staticarp_configure($interface);
 
     if ($verbose) {
         echo "done.\n";
     }
 
-    return 0;
+    if (!file_exists("/var/run/booting")) {
+        if ($reload) {
+            system_routing_configure($verbose, $interface);
+            ipsec_configure_do($verbose, $interface);
+            plugins_configure('dns', $verbose);
+            services_dhcpd_configure($verbose);
+            /* XXX move these up the call stack */
+            configdp_run('dyndns reload', array($interface));
+            configdp_run('rfc2136 reload', array($interface));
+        }
+    }
+
+    interfaces_staticarp_configure($interface);
 }
 
-function interface_track6_configure($interface = 'lan', $wancfg, $linkupevent = false)
+function interface_track6_configure($interface = 'lan', $lancfg, $linkupevent = false)
 {
     global $config;
 
-    if (!is_array($wancfg)) {
+    if (!is_array($lancfg) || !isset($lancfg['enable']) || empty($lancfg['track6-interface'])) {
         return;
     }
 
-    if (!isset($wancfg['enable'])) {
-        return;
-    }
-
-    /* If the interface is not configured via another, exit */
-    if (empty($wancfg['track6-interface'])) {
-        return;
-    }
-
-    /* always configure a link-local of fe80::1:1 on the track6 interfaces */
-    $realif = get_real_interface($interface);
-    $linklocal = find_interface_ipv6_ll($realif);
-    if (!empty($linklocal)) {
-        mwexec("/sbin/ifconfig {$realif} inet6 {$linklocal} delete");
-    }
-    /* XXX: This might break for good on a carp installation using link-local as network ips */
-    /* XXX: Probably should remove? */
-    mwexec("/sbin/ifconfig {$realif} inet6 fe80::1:1%{$realif}");
-
-    $trackcfg = $config['interfaces'][$wancfg['track6-interface']];
+    $trackcfg = $config['interfaces'][$lancfg['track6-interface']];
     if (!isset($trackcfg['enable'])) {
-        log_error("Interface {$interface} tracking non-existent interface {$wancfg['track6-interface']}");
+        log_error("Interface {$interface} tracking non-existent interface {$lancfg['track6-interface']}");
         return;
     }
 
-    switch($trackcfg['ipaddrv6']) {
-        case "6to4":
-            interface_track6_6to4_configure($interface, $wancfg);
+    switch ($trackcfg['ipaddrv6']) {
+        case '6to4':
+            interface_track6_6to4_configure($interface, $lancfg);
             break;
-        case "6rd":
-            interface_track6_6rd_configure($interface, $wancfg);
+        case '6rd':
+            interface_track6_6rd_configure($interface, $lancfg);
             break;
-        case "dhcp6":
-            if ($linkupevent == true) {
-                /*
-                 * NOTE: Usually come here from rc.linkup calling so just call directly intead of generating event
-                 *  Instead of disrupting all other v4 configuration just restart DHCPv6 client for now
-                 *
-                 * XXX: Probably DHCPv6 client should handle this autmagically itself?
-                 */
-                $parentrealif = get_real_interface($wancfg['track6-interface']);
+        case 'slaac':
+            interface_track6_slaac_configure($interface, $lancfg);
+            /* FALLTHROUGH */
+        case 'dhcp6':
+            if ($linkupevent) {
+                $parentrealif = get_real_interface($lancfg['track6-interface'], 'inet6');
                 killbypid("/var/run/dhcp6c_{$parentrealif}.pid", 'HUP');
             }
             break;
     }
+}
 
-    if (!file_exists("/var/run/booting") && $linkupevent == false) {
-        services_dhcpd_configure("inet6");
-    }
-
-    return 0;
+function interface_track6_slaac_configure($interface = 'lan', $lancfg)
+{
+    $realif = get_real_interface($interface);
+    log_error("Accept router advertisements on interface {$realif}");
+    mwexecf('/sbin/ifconfig %s inet6 accept_rtadv -ifdisabled', $realif);
 }
 
 function interface_track6_6rd_configure($interface = 'lan', $lancfg)
 {
     global $config;
-
-    /* If the interface is not configured via another, exit */
-    if (empty($lancfg['track6-interface'])) {
-        return;
-    }
 
     $wancfg = $config['interfaces'][$lancfg['track6-interface']];
     if (empty($wancfg)) {
@@ -2847,8 +2596,8 @@ function interface_track6_6rd_configure($interface = 'lan', $lancfg)
     }
 
     $ip4address = get_interface_ip($lancfg['track6-interface']);
-    if (!is_ipaddrv4($ip4address)) { /* XXX: This should not be needed by 6rd || (is_private_ip($ip4address))) { */
-        log_error("The interface IPv4 '{$ip4address}' address on interface '{$lancfg['track6-interface']}' is not public, not configuring 6RD tunnel");
+    if (!is_ipaddrv4($ip4address)) {
+        log_error("The interface IPv4 address '{$ip4address}' on interface '{$lancfg['track6-interface']}' is invalid, not configuring 6RD tracking");
         return;
     }
     $hexwanv4 = return_hex_ipv4($ip4address);
@@ -2875,37 +2624,24 @@ function interface_track6_6rd_configure($interface = 'lan', $lancfg)
     $rd6lanbin = str_pad($rd6lanbin, 128, "0", STR_PAD_RIGHT);
 
     /* convert the 128 bits for the lan address back into a valid IPv6 address */
-    $rd6lan = convert_128bit_to_ipv6($rd6lanbin) ."1";
+    $rd6lan = convert_128bit_to_ipv6($rd6lanbin) . (1 + get_interface_number_track6($lancfg['track6-interface'], $interface));
 
-    $lanif = get_real_interface($interface);
+    $lanif = get_real_interface($interface, 'inet6');
     $oip = find_interface_ipv6($lanif);
     if (is_ipaddrv6($oip)) {
         mwexec("/sbin/ifconfig {$lanif} inet6 {$oip} delete");
     }
-    log_error("rd6 {$interface} with ipv6 address {$rd6lan} based on {$lancfg['track6-interface']} ipv4 {$ip4address}");
-    mwexec("/sbin/ifconfig {$lanif} inet6 {$rd6lan} prefixlen 64");
 
-    return 0;
+    log_error("rd6 {$interface} with ipv6 address {$rd6lan} based on {$lancfg['track6-interface']} ipv4 {$ip4address}");
+    /* XXX why 64? */
+    mwexec("/sbin/ifconfig {$lanif} inet6 {$rd6lan} prefixlen 64");
 }
 
 function interface_track6_6to4_configure($interface = 'lan', $lancfg)
 {
-    global $config;
-
-    /* If the interface is not configured via another, exit */
-    if (empty($lancfg['track6-interface'])) {
-        return;
-    }
-
-    $wancfg = $config['interfaces'][$lancfg['track6-interface']];
-    if (empty($wancfg)) {
-        log_error("Interface {$interface} tracking non-existent interface {$lancfg['track6-interface']}");
-        return;
-    }
-
     $ip4address = get_interface_ip($lancfg['track6-interface']);
     if (!is_ipaddrv4($ip4address) || is_private_ip($ip4address)) {
-        log_error("The interface IPv4 '{$ip4address}' address on interface '{$lancfg['track6-interface']}' is not public, not configuring 6RD tunnel");
+        log_error("The interface IPv4 address '{$ip4address}' on interface '{$lancfg['track6-interface']}' is not public, not configuring 6to4 tracking");
         return;
     }
     $hexwanv4 = return_hex_ipv4($ip4address);
@@ -2928,38 +2664,37 @@ function interface_track6_6to4_configure($interface = 'lan', $lancfg)
     $sixto4lanbin = str_pad($sixto4lanbin, 128, "0", STR_PAD_RIGHT);
 
     /* convert the 128 bits for the lan address back into a valid IPv6 address */
-    $sixto4lan = convert_128bit_to_ipv6($sixto4lanbin) ."1";
+    $sixto4lan = convert_128bit_to_ipv6($sixto4lanbin) . (1 + get_interface_number_track6($lancfg['track6-interface'], $interface));
 
-    $lanif = get_real_interface($interface);
+    $lanif = get_real_interface($interface, 'inet6');
     $oip = find_interface_ipv6($lanif);
     if (is_ipaddrv6($oip)) {
         mwexec("/sbin/ifconfig {$lanif} inet6 {$oip} delete");
     }
-    log_error("sixto4 {$interface} with ipv6 address {$sixto4lan} based on {$lancfg['track6-interface']} ipv4 {$ip4address}");
-    mwexec("/sbin/ifconfig {$lanif} inet6 {$sixto4lan} prefixlen 64");
 
-    return 0;
+    log_error("sixto4 {$interface} with ipv6 address {$sixto4lan} based on {$lancfg['track6-interface']} ipv4 {$ip4address}");
+    /* XXX why 64? */
+    mwexec("/sbin/ifconfig {$lanif} inet6 {$sixto4lan} prefixlen 64");
 }
 
-function interface_6rd_configure($interface = "wan", $wancfg)
+function interface_6rd_configure($interface = 'wan', $wancfg)
 {
-    global $config;
-
-    /* because this is a tunnel interface we can only function
-     *  with a public IPv4 address on the interface */
     if (!is_array($wancfg)) {
         return;
     }
 
     $wanif = get_real_interface($interface);
     $ip4address = find_interface_ip($wanif);
-    if ((!is_ipaddrv4($ip4address)) || (is_private_ip($ip4address))) {
-        log_error("The interface IPv4 '{$ip4address}' address on interface '{$wanif}' is not public, not configuring 6RD tunnel");
+
+    if (!is_ipaddrv4($ip4address)) {
+        log_error("The interface IPv4 address '{$ip4address}' on interface '{$wanif}' is invalid, not configuring 6RD tunnel");
         return false;
     }
-    $hexwanv4 = return_hex_ipv4($ip4address);
 
-    if (!is_numeric($wancfg['prefix-6rd-v4plen'])) {
+    $hexwanv4 = return_hex_ipv4(!empty($wancfg['prefix-6rd-v4addr']) ? $wancfg['prefix-6rd-v4addr'] : $ip4address);
+
+    if (!is_numeric($wancfg['prefix-6rd-v4plen']) || $wancfg['prefix-6rd-v4plen'] < 0 || $wancfg['prefix-6rd-v4plen'] > 32) {
+        log_error("The interface IPv4 prefix '{$wancfg['prefix-6rd-v4plen']}' on interface '{$wanif}' is invalid, assuming zero");
         $wancfg['prefix-6rd-v4plen'] = 0;
     }
 
@@ -2983,27 +2718,25 @@ function interface_6rd_configure($interface = "wan", $wancfg)
 
     $rd6brgw = "{$rd6prefix}{$wancfg['gateway-6rd']}";
 
-    /* XXX: need to extend to support variable prefix size for v4 */
     $stfiface = "{$interface}_stf";
     if (does_interface_exist($stfiface)) {
         legacy_interface_destroy($stfiface);
     }
     legacy_interface_create('stf', $stfiface);
     legacy_interface_flags($stfiface, 'link2');
-    if ($wancfg['prefix-6rd-v4plen'] > 0) {
-        $rd6prefixlen += intval($wancfg['prefix-6rd-v4plen']);
-    } else {
-        $rd6prefixlen += 32;
-    }
-    mwexec("/sbin/ifconfig {$stfiface} inet6 {$rd6prefix}/{$rd6prefixlen}");
-    mwexec("/sbin/ifconfig {$stfiface} stfv4br " . escapeshellarg($wancfg['gateway-6rd']));
-    if ($wancfg['prefix-6rd-v4plen'] > 0 && $wancfg['prefix-6rd-v4plen'] < 32) {
-        mwexec("/sbin/ifconfig {$stfiface} stfv4net {$ip4address}/{$wancfg['prefix-6rd-v4plen']}");
-    }
 
-    /* write out a default router file */
-    file_put_contents("/tmp/{$wanif}_routerv6", "{$rd6brgw}\n");
-    file_put_contents("/tmp/{$wanif}_defaultgwv6", "{$rd6brgw}\n");
+    $mtu = !empty($wancfg['mtu']) ? $wancfg['mtu'] - 20 : 1280;
+    if ($mtu > 1480) {
+        $mtu = 1480;
+    }
+    legacy_interface_mtu($stfiface, $mtu);
+
+    mwexecf('/sbin/ifconfig %s inet6 %s/%s', array($stfiface, $rd6prefix, $rd6prefixlen + 32 - $wancfg['prefix-6rd-v4plen']));
+    mwexecf('/sbin/ifconfig %s stfv4br %s', array($stfiface, $wancfg['gateway-6rd']));
+    mwexecf('/sbin/ifconfig %s stfv4net %s/%s', array($stfiface, $ip4address, $wancfg['prefix-6rd-v4plen']));
+
+    file_put_contents("/tmp/{$stfiface}_routerv6", "{$rd6brgw}\n");
+    file_put_contents("/tmp/{$stfiface}_defaultgwv6", "{$rd6brgw}\n");
 
     $ip4gateway = get_interface_gateway($interface);
     if (is_ipaddrv4($ip4gateway)) {
@@ -3012,27 +2745,20 @@ function interface_6rd_configure($interface = "wan", $wancfg)
 
     /* configure dependent interfaces */
     if (!file_exists("/var/run/booting")) {
-        link_interface_to_track6($interface, "update");
+        link_interface_to_track6($interface, true);
     }
-
-    return 0;
 }
 
 function interface_6to4_configure($interface = 'wan', $wancfg)
 {
-    global $config;
-
-    /* because this is a tunnel interface we can only function
-     *  with a public IPv4 address on the interface */
-
     if (!is_array($wancfg)) {
         return;
     }
 
     $wanif = get_real_interface($interface);
     $ip4address = find_interface_ip($wanif);
-    if ((!is_ipaddrv4($ip4address)) || (is_private_ip($ip4address))) {
-        log_error("The interface IPv4 '{$ip4address}' address on interface '{$wanif}' is not public, not configuring 6RD tunnel");
+    if (!is_ipaddrv4($ip4address) || is_private_ip($ip4address)) {
+        log_error("The interface IPv4 address '{$ip4address}' on interface '{$wanif}' is not public, not configuring 6to4 tunnel");
         return false;
     }
 
@@ -3074,7 +2800,6 @@ function interface_6to4_configure($interface = 'wan', $wancfg)
 
     /* convert the 128 bits for the broker address back into a valid IPv6 address */
     $stfbrarr = array();
-    $stfbrbinarr = array();
     $stfbrbinarr = str_split($stfbrokerbin, 16);
     foreach ($stfbrbinarr as $bin) {
         $stfbrarr[] = dechex(bindec($bin));
@@ -3083,13 +2808,10 @@ function interface_6to4_configure($interface = 'wan', $wancfg)
 
     /* convert the 128 bits for the broker address back into a valid IPv6 address */
     $stflanarr = array();
-    $stflanbinarr = array();
     $stflanbinarr = str_split($stflanbin, 16);
     foreach ($stflanbinarr as $bin) {
         $stflanarr[] = dechex(bindec($bin));
     }
-    $stflanpr = Net_IPv6::compress(implode(":", $stflanarr));
-    $stflanarr[7] = 1;
     $stflan = Net_IPv6::compress(implode(":", $stflanarr));
 
     $stfiface = "{$interface}_stf";
@@ -3098,11 +2820,17 @@ function interface_6to4_configure($interface = 'wan', $wancfg)
     }
     legacy_interface_create('stf', $stfiface);
     legacy_interface_flags($stfiface, 'link2');
-    mwexec("/sbin/ifconfig {$stfiface} inet6 {$stflanpr} prefixlen 16");
 
-    /* write out a default router file */
-    file_put_contents("/tmp/{$wanif}_routerv6", "{$stfbrgw}");
-    file_put_contents("/tmp/{$wanif}_defaultgwv6", "{$stfbrgw}");
+    $mtu = !empty($wancfg['mtu']) ? $wancfg['mtu'] - 20 : 1280;
+    if ($mtu > 1480) {
+        $mtu = 1480;
+    }
+    legacy_interface_mtu($stfiface, $mtu);
+
+    mwexecf('/sbin/ifconfig %s inet6 %s prefixlen 16', array($stfiface, $stflan));
+
+    file_put_contents("/tmp/{$stfiface}_routerv6", "{$stfbrgw}");
+    file_put_contents("/tmp/{$stfiface}_defaultgwv6", "{$stfbrgw}");
 
     $ip4gateway = get_interface_gateway($interface);
     if (is_ipaddrv4($ip4gateway)) {
@@ -3110,142 +2838,32 @@ function interface_6to4_configure($interface = 'wan', $wancfg)
     }
 
     if (!file_exists("/var/run/booting")) {
-        link_interface_to_track6($interface, "update");
+        link_interface_to_track6($interface, true);
     }
-
-    return 0;
 }
 
 function interface_dhcpv6_configure($interface = 'wan', $wancfg)
 {
     global $config;
 
+    /* write DUID if override was set */
+    if (!empty($config['system']['ipv6duid'])) {
+        dhcp6c_duid_write($config['system']['ipv6duid']);
+    /* clear DUID if it is faulty */
+    } elseif (empty(dhcp6c_duid_read())) {
+        dhcp6c_duid_clear();
+    }
+
     if (!is_array($wancfg)) {
         return;
     }
 
-    $wanif = get_real_interface($interface, "inet6");
-    $dhcp6cconf = "";
-    $dhcp6cconf .= "interface {$wanif} {\n";
-
-    /* for SLAAC interfaces we do fire off a dhcp6 client for just our name servers */
-    if ($wancfg['ipaddrv6'] == "slaac") {
-        $dhcp6cconf .= "  information-only;\n";
-        $dhcp6cconf .= "  request domain-name-servers;\n";
-        $dhcp6cconf .= "  request domain-name;\n";
-        $dhcp6cconf .= "  script \"/var/etc/dhcp6c_{$interface}_script.sh\"; # we'd like some nameservers please\n";
-        $dhcp6cconf .= "};\n";
-    } else {
-        /* skip address request if this is set */
-        if (!isset($wancfg['dhcp6prefixonly'])) {
-            $dhcp6cconf .= "  send ia-na 0;   # request stateful address\n";
-        }
-        if (is_numeric($wancfg['dhcp6-ia-pd-len'])) {
-            $dhcp6cconf .= "  send ia-pd 0;  # request prefix delegation\n";
-        }
-
-        $dhcp6cconf .= "\trequest domain-name-servers;\n";
-        $dhcp6cconf .= "\trequest domain-name;\n";
-        $dhcp6cconf .= "\tscript \"/var/etc/dhcp6c_{$interface}_script.sh\"; # we'd like some nameservers please\n";
-
-        $dhcp6cconf .= "};\n";
-
-        if (!isset($wancfg['dhcp6prefixonly'])) {
-            $dhcp6cconf .= "id-assoc na 0 { };\n";
-        }
-
-        if (is_numeric($wancfg['dhcp6-ia-pd-len'])) {
-            /* Setup the prefix delegation */
-            $dhcp6cconf .= "id-assoc pd 0 {\n";
-            $preflen = 64 - $wancfg['dhcp6-ia-pd-len'];
-            if (isset($wancfg['dhcp6-ia-pd-send-hint'])) {
-                $dhcp6cconf .= "  prefix ::/{$preflen} infinity;\n";
-            }
-            $iflist = link_interface_to_track6($interface);
-            foreach ($iflist as $friendly => $ifcfg) {
-                if (is_numeric($ifcfg['track6-prefix-id'])) {
-                    $realif = get_real_interface($friendly);
-                    $dhcp6cconf .= "  prefix-interface {$realif} {\n";
-                    $dhcp6cconf .= "    sla-id {$ifcfg['track6-prefix-id']};\n";
-                    $dhcp6cconf .= "    sla-len {$wancfg['dhcp6-ia-pd-len']};\n";
-                    $dhcp6cconf .= "  };\n";
-                }
-            }
-            unset($preflen, $iflist, $ifcfg);
-            $dhcp6cconf .= "};\n";
-        }
-    }
-
-    // DHCP6 Config File Advanced
-    if ($wancfg['adv_dhcp6_config_advanced']) {
-        $dhcp6cconf = DHCP6_Config_File_Advanced($interface, $wancfg, $wanif);
-    }
-
-    // DHCP6 Config File Override
-    if (!empty($wancfg['adv_dhcp6_config_file_override'])) {
-        $dhcp6cfile = $wancfg['adv_dhcp6_config_file_override_path'];
-        if (file_exists($dhcp6cfile)) {
-            $dhcp6cconf = file_get_contents($dhcp6cfile);
-            $dhcp6cconf = DHCP6_Config_File_Substitutions($wancfg, $wanif, $dhcp6cconf);
-        } else {
-            log_error(sprintf('DHCP6 config file override does not exist: "%s"', $dhcp6cfile));
-        }
-    }
-
-    /* wide-dhcp6c works for now. */
-    if (!@file_put_contents("/var/etc/dhcp6c_{$interface}.conf", $dhcp6cconf)) {
-        printf("Error: cannot open dhcp6c_{$interface}.conf in interface_dhcpv6_configure() for writing.\n");
-        unset($dhcp6cconf);
-        return 1;
-    }
-    unset($dhcp6cconf);
-
-    $dhcp6cscript = "#!/bin/sh\n";
-    $dhcp6cscript .= "/usr/local/opnsense/service/configd_ctl.py interface newipv6 {$wanif}\n";
-
-    if (!@file_put_contents("/var/etc/dhcp6c_{$interface}_script.sh", $dhcp6cscript)) {
-        printf("Error: cannot open dhcp6c_{$interface}_script.sh in interface_dhcpv6_configure() for writing.\n");
-        unset($dhcp6cscript);
-        return 1;
-    }
-    unset($dhcp6cscript);
-    chmod("/var/etc/dhcp6c_{$interface}_script.sh", 0755);
-
-    $dhcp6ccommand = exec_safe(
-        "/usr/local/sbin/dhcp6c %s -c %s -p %s %s",
-        array(
-            empty($wancfg['adv_dhcp6_debug']) ? '-d' : '-D',
-            "/var/etc/dhcp6c_{$interface}.conf",
-            "/var/run/dhcp6c_{$wanif}.pid",
-            "{$wanif}"
-        )
-    );
-
-    $rtsoldscript = "#!/bin/sh\n";
-    $rtsoldscript .= "# this file was auto-generated, do not edit\n";
-    $rtsoldscript .= "echo $2 > /tmp/{$wanif}_routerv6\n";
-    $rtsoldscript .= "echo $2 > /tmp/{$wanif}_defaultgwv6\n";
-    if (!isset($wancfg['dhcp6sendsolicit'])) {
-        $rtsoldscript .= "if [ -f /var/run/dhcp6c_{$wanif}.pid ]; then\n";
-        $rtsoldscript .= "\t/bin/pkill -KILL -F /var/run/dhcp6c_{$wanif}.pid\n";
-        $rtsoldscript .= "\t/bin/sleep 1\n";
-        $rtsoldscript .= "fi\n";
-        $rtsoldscript .= "/usr/bin/logger -t rtsold \"Starting dhcp6 client for interface {$interface}({$wanif})\"\n";
-        $rtsoldscript .= "$dhcp6ccommand\n";
-    }
-
-    if (!@file_put_contents("/var/etc/rtsold_{$wanif}_script.sh", $rtsoldscript)) {
-        printf("Error: cannot open rtsold_{$wanif}_script.sh in interface_dhcpv6_configure() for writing.\n");
-        unset($rtsoldscript);
-        return 1;
-    }
-    unset($rtsoldscript);
-    chmod("/var/etc/rtsold_{$wanif}_script.sh", 0755);
+    $wanif = get_real_interface($interface, 'inet6');
 
     /* accept router advertisements for this interface */
-    set_single_sysctl("net.inet6.ip6.accept_rtadv", "1");
-    log_error("Accept router advertisements on interface {$wanif} ");
-    mwexec("/sbin/ifconfig {$wanif} inet6 accept_rtadv -ifdisabled");
+    set_single_sysctl('net.inet6.ip6.accept_rtadv', '1');
+    log_error("Accept router advertisements on interface {$wanif}");
+    mwexecf('/sbin/ifconfig %s inet6 accept_rtadv -ifdisabled', $wanif);
 
     /* Enable RFC6204w support for IPv6 Customer Edge (CE) router */
     set_single_sysctl("net.inet6.ip6.rfc6204w3", "1");
@@ -3266,13 +2884,132 @@ function interface_dhcpv6_configure($interface = 'wan', $wancfg)
     );
 
     if (isset($wancfg['dhcp6sendsolicit'])) {
-        /* dhcp6c from previous run can still be around */
-        killbypid("/var/run/dhcp6c_{$wanif}.pid", 'KILL', true);
-        /* command is already exec_safe() */
-        mwexec($dhcp6ccommand);
+        mwexec("/var/etc/rtsold_{$wanif}_script.sh");
+    }
+}
+
+function interface_dhcpv6_prepare($interface = 'wan', $wancfg)
+{
+    if (!is_array($wancfg)) {
+        return;
     }
 
-    return 0;
+    $wanif = get_real_interface($interface, 'inet6');
+
+    $dhcp6cconf = "interface {$wanif} {\n";
+
+    /* for SLAAC interfaces we do fire off a dhcp6 client for just our name servers */
+    if ($wancfg['ipaddrv6'] == "slaac") {
+        $dhcp6cconf .= "  information-only;\n";
+        $dhcp6cconf .= "  request domain-name-servers;\n";
+        $dhcp6cconf .= "  request domain-name;\n";
+        $dhcp6cconf .= "  script \"/var/etc/dhcp6c_{$interface}_script.sh\"; # we'd like some nameservers please\n";
+        $dhcp6cconf .= "};\n";
+    } else {
+        /* skip address request if this is set */
+        if (!isset($wancfg['dhcp6prefixonly'])) {
+            $dhcp6cconf .= "  send ia-na 0; # request stateful address\n";
+        }
+        if (is_numeric($wancfg['dhcp6-ia-pd-len'])) {
+            $dhcp6cconf .= "  send ia-pd 0; # request prefix delegation\n";
+        }
+
+        $dhcp6cconf .= "  request domain-name-servers;\n";
+        $dhcp6cconf .= "  request domain-name;\n";
+        $dhcp6cconf .= "  script \"/var/etc/dhcp6c_{$interface}_script.sh\"; # we'd like some nameservers please\n";
+
+        $dhcp6cconf .= "};\n";
+
+        if (!isset($wancfg['dhcp6prefixonly'])) {
+            $dhcp6cconf .= "id-assoc na 0 { };\n";
+        }
+
+        if (is_numeric($wancfg['dhcp6-ia-pd-len'])) {
+            /* Setup the prefix delegation */
+            $dhcp6cconf .= "id-assoc pd 0 {\n";
+            if (isset($wancfg['dhcp6-ia-pd-send-hint'])) {
+                $preflen = 64 - $wancfg['dhcp6-ia-pd-len'];
+                $dhcp6cconf .= "  prefix ::/{$preflen} infinity;\n";
+            }
+            foreach (link_interface_to_track6($interface) as $friendly => $ifcfg) {
+                if (is_numeric($ifcfg['track6-prefix-id'])) {
+                    $realif = get_real_interface($friendly);
+                    $dhcp6cconf .= "  prefix-interface {$realif} {\n";
+                    $dhcp6cconf .= "    sla-id {$ifcfg['track6-prefix-id']};\n";
+                    $dhcp6cconf .= "    sla-len {$wancfg['dhcp6-ia-pd-len']};\n";
+                    $dhcp6cconf .= "  };\n";
+                }
+            }
+            $dhcp6cconf .= "};\n";
+        }
+    }
+
+    // DHCP6 Config File Advanced
+    if ($wancfg['adv_dhcp6_config_advanced']) {
+        $dhcp6cconf = DHCP6_Config_File_Advanced($interface, $wancfg, $wanif);
+    }
+
+    // DHCP6 Config File Override
+    if (!empty($wancfg['adv_dhcp6_config_file_override'])) {
+        $dhcp6cfile = $wancfg['adv_dhcp6_config_file_override_path'];
+        if (file_exists($dhcp6cfile)) {
+            $dhcp6cconf = file_get_contents($dhcp6cfile);
+            $dhcp6cconf = DHCP6_Config_File_Substitutions($wancfg, $wanif, $dhcp6cconf);
+        } else {
+            log_error("DHCP6 config file override does not exist: '{$dhcp6cfile}'");
+        }
+    }
+
+    if (!@file_put_contents("/var/etc/dhcp6c_{$interface}.conf", $dhcp6cconf)) {
+        log_error("Error: cannot open dhcp6c_{$interface}.conf in interface_dhcpv6_configure() for writing.");
+    }
+
+    $dhcp6cscript = "#!/bin/sh\n";
+    $dhcp6cscript .= "if [ -n '" . (!empty($wancfg['adv_dhcp6_debug']) ? 'debug' : '') . "' ]; then\n";
+    $dhcp6cscript .= "\t/usr/bin/logger -t dhcp6c \"dhcp6c \$REASON on {$wanif}\"\n";
+    $dhcp6cscript .= "fi\n";
+    $dhcp6cscript .= "case \$REASON in\n";
+    $dhcp6cscript .= "REQUEST|" . (!empty($wancfg['dhcp6norelease']) ? 'EXIT' : 'RELEASE') . ")\n";
+    $dhcp6cscript .= "\t/usr/bin/logger -t dhcp6c \"dhcp6c \$REASON on {$wanif} - running newipv6\"\n";
+    $dhcp6cscript .= "\t/usr/local/opnsense/service/configd_ctl.py interface newipv6 {$wanif}\n";
+    $dhcp6cscript .= "\t;;\n";
+    $dhcp6cscript .= "*)\n";
+    $dhcp6cscript .= "\t;;\n";
+    $dhcp6cscript .= "esac\n";
+
+    if (!@file_put_contents("/var/etc/dhcp6c_{$interface}_script.sh", $dhcp6cscript)) {
+        log_error("Error: cannot open dhcp6c_{$interface}_script.sh in interface_dhcpv6_configure() for writing.");
+        return;
+    }
+
+    chmod("/var/etc/dhcp6c_{$interface}_script.sh", 0755);
+
+    $dhcp6ccommand = exec_safe(
+        "/usr/local/sbin/dhcp6c %s -c %s -p %s %s",
+        array(
+            '-' . (empty($wancfg['adv_dhcp6_debug']) ? 'd' : 'D' ) . (!empty($wancfg['dhcp6norelease']) ? 'n' : ''),
+            "/var/etc/dhcp6c_{$interface}.conf",
+            "/var/run/dhcp6c_{$wanif}.pid",
+            "{$wanif}"
+        )
+    );
+
+    $rtsoldscript = "#!/bin/sh\n";
+    $rtsoldscript .= "# this file was auto-generated, do not edit\n";
+    $rtsoldscript .= "if [ -n \"\${2}\" ]; then\n";
+    $rtsoldscript .= "\techo \${2} > /tmp/{$wanif}_routerv6\n";
+    $rtsoldscript .= "\techo \${2} > /tmp/{$wanif}_defaultgwv6\n";
+    $rtsoldscript .= "fi\n";
+    $rtsoldscript .= "if [ -f /var/run/dhcp6c_{$wanif}.pid ]; then\n";
+    $rtsoldscript .= "\t/usr/bin/logger -t dhcp6c \"RTSOLD script - Sending SIGHUP to dhcp6c for interface {$interface}({$wanif})\"\n";
+    $rtsoldscript .= "\t/bin/pkill -HUP -F /var/run/dhcp6c_{$wanif}.pid\n";
+    $rtsoldscript .= "else\n";
+    $rtsoldscript .= "\t/usr/bin/logger -t dhcp6c \"RTSOLD script - Starting dhcp6 client for interface {$interface}({$wanif})\"\n";
+    $rtsoldscript .= "\t$dhcp6ccommand\n";
+    $rtsoldscript .= "fi\n";
+
+    @file_put_contents("/var/etc/rtsold_{$wanif}_script.sh", $rtsoldscript);
+    @chmod("/var/etc/rtsold_{$wanif}_script.sh", 0755);
 }
 
 function DHCP6_Config_File_Advanced($interface, $wancfg, $wanif)
@@ -3281,7 +3018,7 @@ function DHCP6_Config_File_Advanced($interface, $wancfg, $wanif)
     if ($wancfg['adv_dhcp6_interface_statement_send_options'] != '') {
         $options = preg_split('/\s*,\s*(?=(?:[^"]*"[^"]*")*[^"]*$)/', $wancfg['adv_dhcp6_interface_statement_send_options']);
         foreach ($options as $option) {
-            $send_options .= "\tsend " . $option . ";\n";
+            $send_options .= "  send {$option};\n";
         }
     }
 
@@ -3289,43 +3026,42 @@ function DHCP6_Config_File_Advanced($interface, $wancfg, $wanif)
     if ($wancfg['adv_dhcp6_interface_statement_request_options'] != '') {
         $options = preg_split('/\s*,\s*(?=(?:[^"]*"[^"]*")*[^"]*$)/', $wancfg['adv_dhcp6_interface_statement_request_options']);
         foreach ($options as $option) {
-            $request_options .= "\trequest " . $option . ";\n";
+            $request_options .= "  request {$option};\n";
         }
     }
 
     $information_only = "";
     if ($wancfg['adv_dhcp6_interface_statement_information_only_enable'] != '') {
-        $information_only = "\tinformation-only;\n";
+        $information_only = "  information-only;\n";
     }
 
-    $script = "\tscript \"/var/etc/dhcp6c_{$interface}_script.sh\";\n";
+    $script = "  script \"/var/etc/dhcp6c_{$interface}_script.sh\";\n";
     if ($wancfg['adv_dhcp6_interface_statement_script'] != '') {
-        $script = "\tscript \"{$wancfg['adv_dhcp6_interface_statement_script']}\";\n";
+        $script = "  script \"{$wancfg['adv_dhcp6_interface_statement_script']}\";\n";
     }
 
-    $interface_statement  = "interface";
-    $interface_statement .= " {$wanif}";
-    $interface_statement .= " {\n";
-    $interface_statement .= "$send_options";
-    $interface_statement .= "$request_options";
-    $interface_statement .= "$information_only";
-    $interface_statement .= "$script";
+    $interface_statement  = "interface {$wanif} {\n";
+    $interface_statement .= $send_options;
+    $interface_statement .= $request_options;
+    $interface_statement .= $information_only;
+    $interface_statement .= $script;
     $interface_statement .= "};\n";
 
     $id_assoc_statement_address = "";
     if ($wancfg['adv_dhcp6_id_assoc_statement_address_enable'] != '') {
-        $id_assoc_statement_address .= "id-assoc";
-        $id_assoc_statement_address .= " na";
+        $id_assoc_statement_address .= "id-assoc na ";
         if (is_numeric($wancfg['adv_dhcp6_id_assoc_statement_address_id'])) {
-            $id_assoc_statement_address .= " {$wancfg['adv_dhcp6_id_assoc_statement_address_id']}";
+            $id_assoc_statement_address .= "{$wancfg['adv_dhcp6_id_assoc_statement_address_id']}";
+        } else {
+            $id_assoc_statement_address .= '0';
         }
-        $id_assoc_statement_address .= " { ";
+        $id_assoc_statement_address .= " {\n";
 
         if (($wancfg['adv_dhcp6_id_assoc_statement_address'] != '') &&
             (is_numeric($wancfg['adv_dhcp6_id_assoc_statement_address_pltime']) ||
                 $wancfg['adv_dhcp6_id_assoc_statement_address_pltime'] == 'infinity')
            ) {
-            $id_assoc_statement_address .= "\n\taddress";
+            $id_assoc_statement_address .= "  address";
             $id_assoc_statement_address .= " {$wancfg['adv_dhcp6_id_assoc_statement_address']}";
             $id_assoc_statement_address .= " {$wancfg['adv_dhcp6_id_assoc_statement_address_pltime']}";
             if (is_numeric($wancfg['adv_dhcp6_id_assoc_statement_address_vltime']) ||
@@ -3340,44 +3076,40 @@ function DHCP6_Config_File_Advanced($interface, $wancfg, $wanif)
 
     $id_assoc_statement_prefix = "";
     if ($wancfg['adv_dhcp6_id_assoc_statement_prefix_enable'] != '') {
-        $id_assoc_statement_prefix .= "id-assoc";
-        $id_assoc_statement_prefix .= " pd";
+        $id_assoc_statement_prefix .= "id-assoc pd ";
         if (is_numeric($wancfg['adv_dhcp6_id_assoc_statement_prefix_id'])) {
-            $id_assoc_statement_prefix .= " {$wancfg['adv_dhcp6_id_assoc_statement_prefix_id']}";
+            $id_assoc_statement_prefix .= "{$wancfg['adv_dhcp6_id_assoc_statement_prefix_id']}";
+        } else {
+            $id_assoc_statement_prefix .= '0';
         }
-        $id_assoc_statement_prefix .= " { ";
+        $id_assoc_statement_prefix .= " {\n";
 
         if (($wancfg['adv_dhcp6_id_assoc_statement_prefix'] != '') &&
             (is_numeric($wancfg['adv_dhcp6_id_assoc_statement_prefix_pltime']) ||
             $wancfg['adv_dhcp6_id_assoc_statement_prefix_pltime'] == 'infinity')
            ) {
-             $id_assoc_statement_prefix .= "\n\tprefix";
+             $id_assoc_statement_prefix .= "  prefix";
              $id_assoc_statement_prefix .= " {$wancfg['adv_dhcp6_id_assoc_statement_prefix']}";
             $id_assoc_statement_prefix .= " {$wancfg['adv_dhcp6_id_assoc_statement_prefix_pltime']}";
             if ((is_numeric($wancfg['adv_dhcp6_id_assoc_statement_prefix_vltime'])) ||
                 ($wancfg['adv_dhcp6_id_assoc_statement_prefix_vltime'] == 'infinity') ) {
                 $id_assoc_statement_prefix .= " {$wancfg['adv_dhcp6_id_assoc_statement_prefix_vltime']}";
             }
-            $id_assoc_statement_prefix .= ";";
+            $id_assoc_statement_prefix .= ";\n";
         }
 
-        if (is_numeric($wancfg['adv_dhcp6_prefix_interface_statement_sla_id'])) {
-            $id_assoc_statement_prefix .= "\n\tprefix-interface";
-            $id_assoc_statement_prefix .= " {$wanif}";
-            $id_assoc_statement_prefix .= " {\n";
-            $id_assoc_statement_prefix .= "\t\tsla-id {$wancfg['adv_dhcp6_prefix_interface_statement_sla_id']};\n";
-            if (($wancfg['adv_dhcp6_prefix_interface_statement_sla_len'] >= 0) &&
-                ($wancfg['adv_dhcp6_prefix_interface_statement_sla_len'] <= 128)
-            ) {
-                $id_assoc_statement_prefix .= "\t\tsla-len {$wancfg['adv_dhcp6_prefix_interface_statement_sla_len']};\n";
+        foreach (link_interface_to_track6($interface) as $friendly => $ifcfg) {
+            if (is_numeric($ifcfg['track6-prefix-id'])) {
+                $realif = get_real_interface($friendly);
+                $id_assoc_statement_prefix .= "  prefix-interface {$realif} {\n";
+                $id_assoc_statement_prefix .= "    sla-id {$ifcfg['track6-prefix-id']};\n";
+                if (($wancfg['adv_dhcp6_prefix_interface_statement_sla_len'] >= 0) &&
+                    ($wancfg['adv_dhcp6_prefix_interface_statement_sla_len'] <= 128)
+                ) {
+                    $id_assoc_statement_prefix .= "    sla-len {$wancfg['adv_dhcp6_prefix_interface_statement_sla_len']};\n";
+                }
+                $id_assoc_statement_prefix .= "  };\n";
             }
-            $id_assoc_statement_prefix .= "\t};";
-        }
-
-        if (($wancfg['adv_dhcp6_id_assoc_statement_prefix'] != '') ||
-            (is_numeric($wancfg['adv_dhcp6_prefix_interface_statement_sla_id']))
-          ) {
-            $id_assoc_statement_prefix .= "\n";
         }
 
         $id_assoc_statement_prefix  .= "};\n";
@@ -3386,15 +3118,13 @@ function DHCP6_Config_File_Advanced($interface, $wancfg, $wanif)
     $authentication_statement = "";
     if (($wancfg['adv_dhcp6_authentication_statement_authname'] != '') &&
         ($wancfg['adv_dhcp6_authentication_statement_protocol'] == 'delayed') ) {
-        $authentication_statement .= "authentication";
-        $authentication_statement .= " {$wancfg['adv_dhcp6_authentication_statement_authname']}";
-        $authentication_statement .= " {\n";
-        $authentication_statement .= "\tprotocol {$wancfg['adv_dhcp6_authentication_statement_protocol']};\n";
+        $authentication_statement .= "authentication {$wancfg['adv_dhcp6_authentication_statement_authname']} {\n";
+        $authentication_statement .= "  protocol {$wancfg['adv_dhcp6_authentication_statement_protocol']};\n";
         if (preg_match("/(hmac(-)?md5)||(HMAC(-)?MD5)/", $wancfg['adv_dhcp6_authentication_statement_algorithm'])) {
-            $authentication_statement .= "\talgorithm {$wancfg['adv_dhcp6_authentication_statement_algorithm']};\n";
+            $authentication_statement .= "  algorithm {$wancfg['adv_dhcp6_authentication_statement_algorithm']};\n";
         }
         if ($wancfg['adv_dhcp6_authentication_statement_rdm'] == 'monocounter') {
-            $authentication_statement .= "\trdm {$wancfg['adv_dhcp6_authentication_statement_rdm']};\n";
+            $authentication_statement .= "  rdm {$wancfg['adv_dhcp6_authentication_statement_rdm']};\n";
         }
         $authentication_statement .= "};\n";
     }
@@ -3404,14 +3134,12 @@ function DHCP6_Config_File_Advanced($interface, $wancfg, $wanif)
         ($wancfg['adv_dhcp6_key_info_statement_realm'] != '') &&
         (is_numeric($wancfg['adv_dhcp6_key_info_statement_keyid'])) &&
         ($wancfg['adv_dhcp6_key_info_statement_secret'] != '') ) {
-        $key_info_statement .= "keyinfo";
-        $key_info_statement .= " {$wancfg['adv_dhcp6_key_info_statement_keyname']}";
-        $key_info_statement .= " {\n";
-        $key_info_statement .= "\trealm \"{$wancfg['adv_dhcp6_key_info_statement_realm']}\";\n";
-        $key_info_statement .= "\tkeyid {$wancfg['adv_dhcp6_key_info_statement_keyid']};\n";
-        $key_info_statement .= "\tsecret \"{$wancfg['adv_dhcp6_key_info_statement_secret']}\";\n";
+        $key_info_statement .= "keyinfo {$wancfg['adv_dhcp6_key_info_statement_keyname']} {\n";
+        $key_info_statement .= "  realm \"{$wancfg['adv_dhcp6_key_info_statement_realm']}\";\n";
+        $key_info_statement .= "  keyid {$wancfg['adv_dhcp6_key_info_statement_keyid']};\n";
+        $key_info_statement .= "  secret \"{$wancfg['adv_dhcp6_key_info_statement_secret']}\";\n";
         if (preg_match("/((([0-9]{4}-)?[0-9]{2}[0-9]{2} )?[0-9]{2}:[0-9]{2})||(foreever)/", $wancfg['adv_dhcp6_key_info_statement_expire'])) {
-            $key_info_statement .= "\texpire \"{$wancfg['adv_dhcp6_key_info_statement_expire']}\";\n";
+            $key_info_statement .= "  expire \"{$wancfg['adv_dhcp6_key_info_statement_expire']}\";\n";
         }
         $key_info_statement .= "};\n";
     }
@@ -3429,27 +3157,31 @@ function DHCP6_Config_File_Advanced($interface, $wancfg, $wanif)
 
 function DHCP6_Config_File_Substitutions($wancfg, $wanif, $dhcp6cconf)
 {
-    $dhcp6cconf = DHCP_Config_File_Substitutions($wancfg, $wanif, $dhcp6cconf);
-
-    return $dhcp6cconf;
+    return DHCP_Config_File_Substitutions($wancfg, $wanif, $dhcp6cconf);
 }
-
 
 function interface_dhcp_configure($interface = 'wan')
 {
     global $config;
 
     $wancfg = $config['interfaces'][$interface];
-    $wanif = $wancfg['if'];
     if (empty($wancfg)) {
-        $wancfg = array();
+        log_error("Interface '{$interface}' does not have a DHCP configuration.");
+        return;
     }
 
-    /* generate dhclient_wan.conf */
+    $wanif = get_real_interface($interface);
+    if (empty($wanif)) {
+        log_error("Invalid interface '{$interface}' in interface_dhcp_configure()");
+        return;
+    }
+
+    killbypid("/var/run/dhclient.{$wanif}.pid", 'TERM', true);
+
     $fd = fopen("/var/etc/dhclient_{$interface}.conf", "w");
     if (!$fd) {
-        printf(printf(gettext("Error: cannot open dhclient_%s.conf in interface_dhcp_configure() for writing.%s"), $interface, "\n"));
-        return 1;
+        log_error("Error: cannot open dhclient_{$interface}.conf in interface_dhcp_configure() for writing.");
+        return;
     }
 
     if ($wancfg['dhcphostname']) {
@@ -3459,34 +3191,26 @@ function interface_dhcp_configure($interface = 'wan')
         $dhclientconf_hostname = "";
     }
 
-    $wanif = get_real_interface($interface);
-    if (empty($wanif)) {
-        log_error(sprintf('Invalid interface "%s" in interface_dhcp_configure()', $interface));
-        return 0;
-    }
-    $dhclientconf = "";
-
-    $dhclientconf .= <<<EOD
+    $dhclientconf = <<<EOD
 interface "{$wanif}" {
-timeout 60;
-retry 15;
-select-timeout 0;
-initial-interval 1;
+  timeout 60;
+  retry 15;
+  select-timeout 0;
+  initial-interval 1;
   {$dhclientconf_hostname}
-  script "/usr/local/sbin/dhclient-script.ext";
+  script "/usr/local/opnsense/scripts/interfaces/dhclient-script";
+
 EOD;
+
+    if (empty($wancfg['dhcphonourmtu'])) {
+        $dhclientconf .= "  supersede interface-mtu 0;\n";
+    }
 
     if (is_ipaddrv4($wancfg['dhcprejectfrom'])) {
-        $dhclientconf .= <<<EOD
-
-  reject {$wancfg['dhcprejectfrom']};
-EOD;
+        $dhclientconf .= "  reject {$wancfg['dhcprejectfrom']};\n";
     }
-    $dhclientconf .= <<<EOD
 
-}
-
-EOD;
+    $dhclientconf .= "}\n";
 
     // DHCP Config File Advanced
     if ($wancfg['adv_dhcp_config_advanced']) {
@@ -3512,27 +3236,20 @@ EOD;
             $dhclientconf = file_get_contents($dhclientfile);
             $dhclientconf = DHCP_Config_File_Substitutions($wancfg, $wanif, $dhclientconf);
         } else {
-            log_error(sprintf('DHCP config file override does not exist: "%s"', $dhclientfile));
+            log_error("DHCP config file override does not exist: '{$dhclientfile}'");
         }
     }
 
     fwrite($fd, $dhclientconf);
     fclose($fd);
 
-    /* bring wan interface up before starting dhclient */
-    if ($wanif) {
-        interfaces_bring_up($wanif);
-    } else {
-        log_error(sprintf('Could not bring up %s interface in interface_dhcp_configure()', $wanif));
-    }
+    interfaces_bring_up($wanif);
 
-    /* Make sure dhclient is not running */
-    kill_dhclient_process($wanif);
-
-    /* fire up dhclient */
-    mwexec("/sbin/dhclient -c /var/etc/dhclient_{$interface}.conf {$wanif} > /tmp/{$wanif}_output 2> /tmp/{$wanif}_error_output");
-
-    return 0;
+    mwexecf('/sbin/dhclient -c %s -p %s %s', array(
+        "/var/etc/dhclient_{$interface}.conf",
+        "/var/run/dhclient.{$wanif}.pid",
+        $wanif
+    ));
 }
 
 function DHCP_Config_File_Advanced($interface, $wancfg, $wanif)
@@ -3578,24 +3295,27 @@ function DHCP_Config_File_Advanced($interface, $wancfg, $wanif)
         }
     }
 
-    $dhclientconf  = "interface \"{$wanif}\" {\n";
-    $dhclientconf .= "\n";
-    $dhclientconf .= "# DHCP Protocol Timing Values\n";
+    $dhclientconf = "interface \"{$wanif}\" {\n";
+    $dhclientconf .= "\t# DHCP Protocol Timing Values\n";
     $dhclientconf .= "{$adv_dhcp_pt_timeout}";
     $dhclientconf .= "{$adv_dhcp_pt_retry}";
     $dhclientconf .= "{$adv_dhcp_pt_select_timeout}";
     $dhclientconf .= "{$adv_dhcp_pt_reboot}";
     $dhclientconf .= "{$adv_dhcp_pt_backoff_cutoff}";
     $dhclientconf .= "{$adv_dhcp_pt_initial_interval}";
-    $dhclientconf .= "\n";
-    $dhclientconf .= "# DHCP Protocol Options\n";
+    $dhclientconf .= "\n\t# DHCP Protocol Options\n";
     $dhclientconf .= "{$hostname}";
     $dhclientconf .= "{$send_options}";
     $dhclientconf .= "{$request_options}";
     $dhclientconf .= "{$required_options}";
     $dhclientconf .= "{$option_modifiers}";
-    $dhclientconf .= "\n";
-    $dhclientconf .= "\tscript \"/usr/local/sbin/dhclient-script.ext\";\n";
+    $dhclientconf .= "\n\tscript \"/usr/local/opnsense/scripts/interfaces/dhclient-script\";\n";
+    if (empty($wancfg['dhcphonourmtu'])) {
+        $dhclientconf .= "\tsupersede interface-mtu 0;\n";
+    }
+    if (is_ipaddrv4($wancfg['dhcprejectfrom'])) {
+        $dhclientconf .= "\treject {$wancfg['dhcprejectfrom']};\n";
+    }
     $dhclientconf .= "}\n";
 
     $dhclientconf = DHCP_Config_File_Substitutions($wancfg, $wanif, $dhclientconf);
@@ -3607,8 +3327,7 @@ function DHCP_Config_File_Substitutions($wancfg, $wanif, $dhclientconf)
 {
 
     /* Apply Interface Substitutions */
-    $dhclientconf = str_replace("{interface}", "{
-                        $wanif}", $dhclientconf);
+    $dhclientconf = str_replace("{interface}", "{$wanif}", $dhclientconf);
 
     /* Apply Hostname Substitutions */
     $dhclientconf = str_replace("{hostname}", $wancfg['dhcphostname'], $dhclientconf);
@@ -3673,8 +3392,6 @@ function interfaces_group_setup()
 
 function interface_group_setup(&$groupname)
 {
-    global $config;
-
     if (!is_array($groupname)) {
         return;
     }
@@ -3720,14 +3437,15 @@ function convert_real_interface_to_friendly_interface_name($interface = 'wan')
     }
 
     // search direct
-    foreach ($config['interfaces'] as $if => $ifname) {
+    $all_interfaces = legacy_config_get_interfaces();
+    foreach ($all_interfaces as $if => $ifname) {
         if ($if == $interface || $ifname['if'] == $interface) {
             return $if;
         }
     }
 
     // search related
-    foreach ($config['interfaces'] as $if => $ifname) {
+    foreach ($all_interfaces as $if => $ifname) {
         if (get_real_interface($if) == $interface) {
             return $if;
         }
@@ -3766,20 +3484,20 @@ function convert_friendly_interface_to_friendly_descr($interface)
             $ifdesc = "PPPoE";
             break;
         case "openvpn":
+            /*XXX practically unneeded as we are rendering virtual interfaces to the config */
             $ifdesc = "OpenVPN";
             break;
         case "enc0":
         case "ipsec":
         case "IPsec":
+            /* XXX practically unneeded as we are rendering virtual interfaces to the config */
+            /* XXX it should also be noted that "enc0" is the only proper way for this lookup */
             $ifdesc = "IPsec";
             break;
         default:
             if (isset($config['interfaces'][$interface])) {
-                if (empty($config['interfaces'][$interface]['descr'])) {
-                    $ifdesc = strtoupper($interface);
-                } else {
-                    $ifdesc = strtoupper($config['interfaces'][$interface]['descr']);
-                }
+                $ifdesc = !empty($config['interfaces'][$interface]['descr']) ?
+                    $config['interfaces'][$interface]['descr'] : strtoupper($interface);
                 break;
             } elseif (stristr($interface, "_vip")) {
                 if (isset($config['virtualip']['vip'])) {
@@ -3792,11 +3510,9 @@ function convert_friendly_interface_to_friendly_descr($interface)
                     }
                 }
             } else {
-                /* if list */
-                $ifdescrs = get_configured_interface_with_descr(false, true);
-                foreach ($ifdescrs as $if => $ifname) {
-                    if ($if == $interface || $ifname == $interface) {
-                        return $ifname;
+                foreach (legacy_config_get_interfaces(array('virtual' => false)) as $if => $ifcfg) {
+                    if ($if == $interface || $ifcfg['descr'] == $interface) {
+                        return $ifcfg['ifdescr'];
                     }
                 }
             }
@@ -3896,7 +3612,7 @@ function interface_get_wireless_clone($wlif)
     }
 }
 
-function get_real_interface($interface = "wan", $family = "all", $realv6iface = false, $flush = true)
+function get_real_interface($interface = 'wan', $family = 'all')
 {
     global $config;
 
@@ -3913,9 +3629,12 @@ function get_real_interface($interface = "wan", $family = "all", $realv6iface = 
             break;
         default:
             if (empty($config['interfaces'][$interface])) {
-                // leftover from legacy code, it's not a very bright idea to use the same function call
-                // for both virtual as real interface names. does_interface_exist() is quite expensive.
-                if (does_interface_exist($interface, $flush)) {
+                /*
+                 * Leftover from legacy code.  It's not a very bright idea
+                 * to use the same function call for both virtual as real
+                 * interface names. does_interface_exist() is quite expensive.
+                 */
+                if (does_interface_exist($interface)) {
                     $wanif = $interface;
                 }
                 break;
@@ -3923,15 +3642,10 @@ function get_real_interface($interface = "wan", $family = "all", $realv6iface = 
 
             $cfg = &config_read_array('interfaces', $interface);
 
-            if ($family == "inet6") {
-                if (isset($cfg['ipaddrv6'])) {
-                    $ipaddrv6 = $cfg['ipaddrv6'];
-                } else {
-                    $ipaddrv6 = "";
-                }
-                switch ($ipaddrv6) {
-                    case "6rd":
-                    case "6to4":
+            if ($family == 'inet6') {
+                switch (isset($cfg['ipaddrv6']) ? $cfg['ipaddrv6'] : '') {
+                    case '6rd':
+                    case '6to4':
                         $wanif = "{$interface}_stf";
                         break;
                     case 'pppoe':
@@ -3950,7 +3664,7 @@ function get_real_interface($interface = "wan", $family = "all", $realv6iface = 
                             case 'ppp':
                             case 'l2tp':
                             case 'pptp':
-                                if (isset($cfg['dhcp6usev4iface']) && $realv6iface === false) {
+                                if (isset($cfg['dhcp6usev4iface'])) {
                                     $wanif = $cfg['if'];
                                 } else {
                                     $parents = get_parent_interface($interface);
@@ -3987,7 +3701,6 @@ function get_real_interface($interface = "wan", $family = "all", $realv6iface = 
     return $wanif;
 }
 
-/* Guess the physical interface by providing a IP address */
 function guess_interface_from_ip($ipaddress)
 {
     if (!is_ipaddr($ipaddress)) {
@@ -4025,30 +3738,57 @@ function guess_interface_from_ip($ipaddress)
     return $ret;
 }
 
-function link_interface_to_track6($int, $action = '')
+function get_interface_number_track6($wanif, $targetif)
 {
-    global $config;
+    $list = link_interface_to_track6($wanif);
+    $number = 0;
 
-    if (empty($int)) {
-        return;
+    foreach (array_keys($list) as $lanif) {
+        if ($lanif == $targetif) {
+            return $number;
+        }
+        $number += 1;
     }
 
-    if (isset($config['interfaces'])) {
-        $list = array();
-        foreach (legacy_config_get_interfaces(array("virtual" => false)) as $ifname => $ifcfg) {
-            if (!isset($ifcfg['enable'])) {
-                continue;
-            }
-            if (!empty($ifcfg['ipaddrv6']) && $ifcfg['track6-interface'] == $int) {
-                if ($action == "update") {
-                    interface_track6_configure($ifname, $ifcfg);
-                } elseif ($action == "") {
-                    $list[$ifname] = $ifcfg;
-                }
-            }
-        }
+    /* if we fail give backwards-compat */
+    return 0;
+}
+
+function link_interface_to_track6($wanif, $update = false)
+{
+    $list = array();
+
+    if (empty($wanif)) {
         return $list;
     }
+
+    $wancfg = config_read_array('interfaces', $wanif);
+
+    if (!isset($wancfg['enable']) || empty($wancfg['ipaddrv6'])) {
+        return $list;
+    }
+
+    foreach (legacy_config_get_interfaces(array('virtual' => false)) as $lanif => $lancfg) {
+        if (!isset($lancfg['enable']) || empty($lancfg['ipaddrv6'])) {
+            continue;
+        }
+
+        if ($lancfg['ipaddrv6'] == 'track6' && $lancfg['track6-interface'] == $wanif) {
+            $list[$lanif] = $lancfg;
+        }
+    }
+
+    if ($update) {
+        if ($wancfg['ipaddrv6'] == 'slaac') {
+            services_radvd_configure();
+        }
+
+        foreach ($list as $lanif => $lancfg) {
+            interface_track6_configure($lanif, $lancfg);
+        }
+    }
+
+    return $list;
 }
 
 function link_interface_to_vips($int, $action = '')
@@ -4142,79 +3882,73 @@ function link_interface_to_gif($interface)
     return $result;
 }
 
-/*
- * find_interface_ip($interface): return the interface ip (first found)
- */
-function find_interface_ip($interface)
+function find_interface_ip($realif)
 {
-    $interface = trim($interface);
-    if (does_interface_exist($interface)) {
-        $ifinfo = legacy_get_interface_addresses($interface);
-        if (isset($ifinfo['ipaddr'])) {
-            return $ifinfo['ipaddr'];
-        }
+    $ifinfo = legacy_get_interface_addresses($realif);
+
+    if (!isset($ifinfo['ipaddr'])) {
+        return null;
     }
-    return null;
+
+    return $ifinfo['ipaddr'];
 }
 
-/*
- * find_interface_ipv6($interface): return the interface ip (first found)
- */
-function find_interface_ipv6($interface)
+function find_interface_network($realif, $subnet = true)
 {
-    // a bit obscure, why should this be different then find_interface_ip?
-    $interface = get_real_interface(trim($interface));
-    if (does_interface_exist($interface)) {
-        $ifinfo = legacy_get_interface_addresses($interface);
-        if (isset($ifinfo['ipaddr6'])) {
-            return $ifinfo['ipaddr6'];
-        }
+    $ifinfo = legacy_get_interface_addresses($realif);
+
+    if (!isset($ifinfo['ipaddr']) || !isset($ifinfo['subnetbits'])) {
+        return null;
     }
-    return null;
+
+    $net = $ifinfo['subnetbits'];
+    $addr = $ifinfo['ipaddr'];
+
+    if ($subnet) {
+        $addr = gen_subnet($addr, $net);
+    }
+
+    return "{$addr}/${net}";
 }
 
-/*
- * find_interface_ipv6_ll($interface): return the interface ipv6 link local (first found)
- */
-function find_interface_ipv6_ll($interface)
+function find_interface_ipv6($realif)
 {
-    $interface = trim($interface);
-    if (does_interface_exist($interface)) {
-        $ifinfo = legacy_getall_interface_addresses($interface);
-        foreach ($ifinfo as $line) {
-            if (strstr($line, ":")) {
-                $parts = explode("/", $line);
-                if (is_linklocal($parts[0])) {
-                    return $parts[0];
-                }
-            }
-        }
+    $ifinfo = legacy_get_interface_addresses($realif);
+
+    if (!isset($ifinfo['ipaddr6'])) {
+        return null;
     }
-    return null;
+
+    return $ifinfo['ipaddr6'];
 }
 
-function find_interface_subnet($interface)
+function find_interface_networkv6($realif, $subnet = true)
 {
-    $interface = trim($interface);
-    if (does_interface_exist($interface)) {
-        $ifinfo = legacy_get_interface_addresses($interface);
-        if (isset($ifinfo['subnetbits'])) {
-            return $ifinfo['subnetbits'];
-        }
+    $ifinfo = legacy_get_interface_addresses($realif);
+
+    if (!isset($ifinfo['ipaddr6']) || !isset($ifinfo['subnetbits6'])) {
+        return null;
     }
-    return null;
+
+    $net = $ifinfo['subnetbits6'];
+    $addr = $ifinfo['ipaddr6'];
+
+    if ($subnet) {
+        $addr = gen_subnetv6($addr, $net);
+    }
+
+    return "{$addr}/${net}";
 }
 
-function find_interface_subnet6($interface)
+function find_interface_ipv6_ll($realif)
 {
-    $interface = trim($interface);
-    if (does_interface_exist($interface)) {
-        $ifinfo = legacy_get_interface_addresses($interface);
-        if (isset($ifinfo['subnetbits6'])) {
-            return $ifinfo['subnetbits6'];
-        }
+    $ifinfo = legacy_get_interface_addresses($realif);
+
+    if (!isset($ifinfo['ipaddr6_ll'])) {
+        return null;
     }
-    return null;
+
+    return $ifinfo['ipaddr6_ll'];
 }
 
 function ip_in_interface_alias_subnet($interface, $ipalias)
@@ -4228,7 +3962,7 @@ function ip_in_interface_alias_subnet($interface, $ipalias)
         foreach ($config['virtualip']['vip'] as $vip) {
             switch ($vip['mode']) {
                 case "ipalias":
-                    if ($vip['interface'] <> $interface) {
+                    if ($vip['interface'] != $interface) {
                         break;
                     }
                     $subnet = is_ipaddrv6($ipalias) ? gen_subnetv6($vip['subnet'], $vip['subnet_bits']) : gen_subnet($vip['subnet'], $vip['subnet_bits']);
@@ -4243,128 +3977,32 @@ function ip_in_interface_alias_subnet($interface, $ipalias)
     return false;
 }
 
-function get_interface_ip($interface = "wan")
+function get_interface_ip($interface = 'wan')
 {
     $realif = get_failover_interface($interface);
-    if (!$realif) {
-        if (strstr($interface, "_vip")) {
-            return get_configured_carp_interface_list($interface);
-        } else {
-            return null;
-        }
+    if ($realif) {
+        return find_interface_ip($realif);
     }
 
-    $curip = find_interface_ip($realif);
-    if ($curip && is_ipaddr($curip) && ($curip != "0.0.0.0")) {
-        return $curip;
-    } else {
-        return null;
-    }
-}
-
-function get_interface_ipv6($interface = "wan", $flush = false)
-{
-    global $config;
-
-    $realif = get_failover_interface($interface, "inet6");
-    if (!$realif) {
-        if (strstr($interface, "_vip")) {
-            return get_configured_carp_interface_list($interface, "inet6");
-        } else {
-            return null;
-        }
-    }
-
-    /*
-     * NOTE: On the case when only the prefix is requested,
-     * the communication on WAN will be done over link-local.
-     */
-    if (isset($config['interfaces'][$interface])) {
-        switch ($config['interfaces'][$interface]['ipaddr']) {
-            case 'pppoe':
-            case 'l2tp':
-            case 'pptp':
-            case 'ppp':
-                if ($config['interfaces'][$interface]['ipaddrv6'] == 'dhcp6') {
-                    $realif = get_real_interface($interface, 'inet6');
-                }
-                break;
-        }
-        if (isset($config['interfaces'][$interface]['dhcp6prefixonly'])) {
-            $curip = find_interface_ipv6_ll($realif, $flush);
-            if ($curip && is_ipaddrv6($curip) && ($curip != "::")) {
-                return $curip;
-            }
-        }
-    }
-
-    $curip = find_interface_ipv6($realif, $flush);
-    if ($curip && is_ipaddrv6($curip) && ($curip != "::")) {
-        return $curip;
-    } else {
-        return null;
-    }
-}
-
-function get_interface_linklocal($interface = "wan")
-{
-    $realif = get_failover_interface($interface, "inet6");
-    if (!$realif) {
-        if (strstr($interface, "_vip")) {
-            list($interface, $vhid) = explode("_vip", $interface);
-            $realif = get_real_interface($interface);
-        } else {
-            return null;
-        }
-    }
-
-    $curip = find_interface_ipv6_ll($realif);
-    if ($curip && is_ipaddrv6($curip) && ($curip != "::")) {
-        return $curip;
-    } else {
-        return null;
-    }
-}
-
-function get_interface_subnet($interface = "wan")
-{
-    $realif = get_real_interface($interface);
-    if (!$realif) {
-        if (strstr($interface, "_vip")) {
-            list($interface, $vhid) = explode("_vip", $interface);
-            $realif = get_real_interface($interface);
-        } else {
-            return null;
-        }
-    }
-
-    $cursn = find_interface_subnet($realif);
-    if (!empty($cursn)) {
-        return $cursn;
+    if (strstr($interface, '_vip')) {
+        return get_configured_carp_interface_list($interface);
     }
 
     return null;
 }
 
-function get_interface_subnetv6($interface = "wan")
+function get_interface_ipv6($interface = 'wan')
 {
     global $config;
 
-    $realif = get_real_interface($interface, "inet6");
-    if (!$realif) {
-        if (strstr($interface, "_vip")) {
-            list($interface, $vhid) = explode("_vip", $interface);
-            $realif = get_real_interface($interface);
-        } else {
-            return null;
-        }
+    $realif = get_failover_interface($interface, 'inet6');
+    if ($realif) {
+        return isset($config['interfaces'][$interface]['dhcp6prefixonly']) ?
+            find_interface_ipv6_ll($realif) : find_interface_ipv6($realif);
     }
 
-    if (does_interface_exist($realif)) {
-        $ifinfo = legacy_get_interface_addresses($realif);
-        if (isset($ifinfo['subnetbits6'])) {
-            return $ifinfo['subnetbits6'];
-        }
+    if (strstr($interface, '_vip')) {
+        return get_configured_carp_interface_list($interface, 'inet6');
     }
 
     return null;
@@ -4403,31 +4041,25 @@ function interface_has_gateway($friendly)
     return false;
 }
 
-/* return true if interface has a gateway */
 function interface_has_gatewayv6($friendly)
 {
     global $config;
 
     if (!empty($config['interfaces'][$friendly])) {
         $ifname = &config_read_array('interfaces', $friendly);
-        if (isset($ifname['ipaddrv6'])) {
-            $ipaddrv6 = $ifname['ipaddrv6'];
-        } else {
-            $ipaddrv6 = "";
-        }
-        switch ($ipaddrv6) {
-            case "slaac":
-            case "dhcp6":
-            case "6to4":
-            case "6rd":
+        switch (isset($ifname['ipaddrv6']) ? $ifname['ipaddrv6'] : '') {
+            case 'slaac':
+            case 'dhcp6':
+            case '6to4':
+            case '6rd':
                 return true;
                 break;
             default:
-                if (substr($ifname['if'], 0, 4) ==  "ovpn") {
+                if (substr($ifname['if'], 0, 4) ==  'ovpn') {
                     return true;
                 }
                 $tunnelif = substr($ifname['if'], 0, 3);
-                if ($tunnelif == "gif" || $tunnelif == "gre") {
+                if ($tunnelif == 'gif' || $tunnelif == 'gre') {
                     return true;
                 }
                 if (!empty($ifname['gatewayv6'])) {
@@ -4467,14 +4099,6 @@ function get_interface_mac($interface)
     $macinfo = legacy_get_interface_addresses($interface);
 
     return $macinfo["macaddr"];
-}
-
-function is_jumbo_capable($iface)
-{
-    $intf_details = legacy_interface_details(trim($iface));
-
-    return isset($intf_details['capabilities']) &&
-        in_array('vlan_mtu', $intf_details['capabilities']);
 }
 
 function get_vip_descr($ipaddress)
@@ -4530,11 +4154,11 @@ function interfaces_staticarp_configure($if)
     }
 }
 
-function get_failover_interface($interface, $family = "all")
+function get_failover_interface($interface, $family = 'all')
 {
     global $config;
 
-    /* shortcut to get_real_interface if we find it in the config */
+    /* shortcut for known interfaces */
     if (isset($config['interfaces'][$interface])) {
         return get_real_interface($interface, $family);
     }
@@ -4543,14 +4167,14 @@ function get_failover_interface($interface, $family = "all")
     $a_groups = return_gateway_groups_array();
     if (isset($a_groups[$interface])) {
         /* we found a gateway group, fetch the interface or vip */
-        if ($a_groups[$interface][0]['vip'] <> "") {
+        if ($a_groups[$interface][0]['vip'] != '') {
             return $a_groups[$interface][0]['vip'];
         } else {
             return $a_groups[$interface][0]['int'];
         }
     }
-    /* fall through to get_real_interface */
-    /* XXX: Really needed? */
+
+    /* fall through to get real interface the hard way */
     return get_real_interface($interface, $family);
 }
 
@@ -4567,7 +4191,8 @@ function get_interfaces_info()
         $ifinfo['if'] = get_real_interface($ifdescr);
         $ifinfo['status'] = (is_array($ifup) && in_array($ifinfo['if'], $ifup)) ? 'up' : 'down';
         if (!empty($all_intf_details[$ifinfo['if']])) {
-            if (in_array($all_intf_details[$ifinfo['if']]['status'], array('active', 'running'))) {
+            if (isset($all_intf_details[$ifinfo['if']]['status']) &&
+                    in_array($all_intf_details[$ifinfo['if']]['status'], array('active', 'running'))) {
                 $all_intf_details[$ifinfo['if']]['status'] = $ifinfo['status'];
             }
             $ifinfo = array_merge($ifinfo, $all_intf_details[$ifinfo['if']]);
@@ -4593,18 +4218,10 @@ function get_interfaces_info()
         $ifinfo['outerrs'] = $ifinfotmp['output errors'];
         $ifinfo['collisions'] = $ifinfotmp['collisions'];
 
-        $ifconfiginfo = "";
         $link_type = $config['interfaces'][$ifdescr]['ipaddr'];
         switch ($link_type) {
-            /* DHCP? -> see if dhclient is up */
-            case "dhcp":
-                /* see if dhclient is up */
-                if (find_dhclient_process($ifinfo['if']) != 0) {
-                    $ifinfo['dhcplink'] = "up";
-                } else {
-                    $ifinfo['dhcplink'] = "down";
-                }
-
+            case 'dhcp':
+                $ifinfo['dhcplink'] = isvalidpid("/var/run/dhclient.{$ifinfo['if']}.pid") ? 'up' : 'down';
                 break;
             /* PPPoE/PPTP/L2TP interface? -> get status from virtual interface */
             case "pppoe":
@@ -4681,7 +4298,7 @@ function get_interfaces_info()
         }
 
         if (file_exists("/var/run/{$link_type}_{$ifdescr}.pid")) {
-            $sec = trim(`/usr/local/sbin/ppp-uptime.sh {$ifinfo['if']}`);
+            $sec = trim(`/usr/local/opnsense/scripts/interfaces/ppp-uptime.sh {$ifinfo['if']}`);
             $ifinfo['ppp_uptime'] = convert_seconds_to_hms($sec);
         }
 
@@ -4711,17 +4328,16 @@ function get_interfaces_info()
             }
         }
 
-        $bridge = "";
         $bridge = link_interface_to_bridge($ifdescr);
         if ($bridge) {
             $bridge_text = `/sbin/ifconfig {$bridge}`;
-            if (stristr($bridge_text, "blocking") <> false) {
-                $ifinfo['bridge'] = "<b><font color='red'>" . gettext("blocking") . "</font></b> - " . gettext("check for ethernet loops");
+            if (stristr($bridge_text, 'blocking') != false) {
+                $ifinfo['bridge'] = "<b><span class='text-danger'>" . gettext("blocking") . "</span></b> - " . gettext("check for ethernet loops");
                 $ifinfo['bridgeint'] = $bridge;
-            } elseif (stristr($bridge_text, "learning") <> false) {
+            } elseif (stristr($bridge_text, 'learning') != false) {
                 $ifinfo['bridge'] = gettext("learning");
                 $ifinfo['bridgeint'] = $bridge;
-            } elseif (stristr($bridge_text, "forwarding") <> false) {
+            } elseif (stristr($bridge_text, 'forwarding') != false) {
                 $ifinfo['bridge'] = gettext("forwarding");
                 $ifinfo['bridgeint'] = $bridge;
             }
@@ -4888,7 +4504,6 @@ function get_ppp_uptime($port)
 */
 function is_ipaddr_configured($ipaddr, $ignore_if = '')
 {
-    global $config;
     $if = get_real_interface($ignore_if);
     $interface_list_ips = get_configured_ip_addresses();
 
@@ -4904,20 +4519,98 @@ function is_ipaddr_configured($ipaddr, $ignore_if = '')
  */
 function get_carp_interface_status($carpinterface)
 {
-    $carp_query = '';
+    $carp_query = [];
 
-    /* XXX: Need to fidn a better way for this! */
+    /* XXX: Need to find a better way for this! */
     list ($interface, $vhid) = explode("_vip", $carpinterface);
     $interface = get_real_interface($interface);
     exec("/sbin/ifconfig $interface | /usr/bin/grep -v grep | /usr/bin/grep carp: | /usr/bin/grep 'vhid {$vhid}'", $carp_query);
-    foreach($carp_query as $int) {
+    foreach ($carp_query as $int) {
         if (stristr($int, "MASTER")) {
             return gettext("MASTER");
         } elseif (stristr($int, "BACKUP")) {
             return gettext("BACKUP");
-        } elseif(stristr($int, "INIT")) {
+        } elseif (stristr($int, "INIT")) {
             return gettext("INIT");
         }
     }
     return;
+}
+
+function make_ipv6_64_address($prefix, $suffix)
+{
+    $prefix_array = explode(':', Net_IPv6::uncompress($prefix));
+    $suffix_array = explode(':', Net_IPv6::uncompress($suffix));
+
+    /* unconditionally merge right side of /64 */
+    foreach (array(4, 5, 6, 7) as $index) {
+        $prefix_array[$index] = $suffix_array[$index];
+    }
+
+    /* XXX correctly merging the left side of /64 requires user-specified prefix length */
+    foreach (array(0, 1, 2, 3) as $index) {
+        if ((int)$suffix_array[$index] === 0) {
+            continue;
+        }
+        $prefix_array[$index] = $suffix_array[$index];
+    }
+
+    return implode(':', $prefix_array);
+}
+
+function interfaces_addresses($interfaces)
+{
+    global $config;
+
+    $realifs = array();
+    $result = array();
+
+    if (!is_array($interfaces)) {
+        $interfaces = array($interfaces);
+    }
+
+    foreach ($interfaces as $interface) {
+        if ($interface == 'lo0') {
+            $realifs[] = 'lo0';
+        }
+
+        if (isset($config['interfaces'][$interface])) {
+            foreach (array('all', 'inet6') as $family) {
+                $realif = get_real_interface($interface, $family);
+                if (!empty($realif) && !in_array($realif, $realifs)) {
+                    $realifs[] = $realif;
+                }
+            }
+        }
+    }
+
+    if (!count($realifs)) {
+        return $result;
+    }
+
+    $intf_details = legacy_interfaces_details();
+
+    foreach ($realifs as $realif) {
+        foreach (array('ipv4', 'ipv6') as $proto) {
+            if (empty($intf_details[$realif][$proto])) {
+                continue;
+            }
+            foreach ($intf_details[$realif][$proto] as $address) {
+                if (!empty($address['tunnel']) || empty($address['ipaddr'])) {
+                    continue;
+                }
+                $scope = '';
+                if (!empty($address['link-local'])) {
+                    $scope = "%{$realif}";
+                }
+                $result["{$address['ipaddr']}{$scope}"] = array(
+                    'family' => $proto == 'ipv4' ? 'inet' : 'inet6',
+                    'scope' => !empty($scope),
+                    'name' => $realif,
+                );
+            }
+        }
+    }
+
+    return $result;
 }

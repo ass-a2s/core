@@ -1,32 +1,32 @@
 <?php
 
 /*
-    Copyright (C) 2014-2016 Deciso B.V.
-    Copyright (C) 2004-2012 Scott Ullrich <sullrich@gmail.com>
-    Copyright (C) 2003-2004 Manuel Kasper <mk@neon1.net>.
-    All rights reserved.
-
-    Redistribution and use in source and binary forms, with or without
-    modification, are permitted provided that the following conditions are met:
-
-    1. Redistributions of source code must retain the above copyright notice,
-       this list of conditions and the following disclaimer.
-
-    2. Redistributions in binary form must reproduce the above copyright
-       notice, this list of conditions and the following disclaimer in the
-       documentation and/or other materials provided with the distribution.
-
-    THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
-    INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
-    AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
-    AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
-    oR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-    SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-    INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-    CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-    ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-    POSSIBILITY OF SUCH DAMAGE.
-*/
+ * Copyright (C) 2014-2016 Deciso B.V.
+ * Copyright (C) 2004-2012 Scott Ullrich <sullrich@gmail.com>
+ * Copyright (C) 2003-2004 Manuel Kasper <mk@neon1.net>
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
+ * AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
+ * OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ */
 
 require_once('guiconfig.inc');
 
@@ -101,7 +101,7 @@ include("fbegin.inc");?>
 ?>
 <?php
   if (isset($config['trigger_initial_wizard']) || isset($_GET['wizard_done'])): ?>
-  <script type="text/javascript">
+  <script>
       $( document ).ready(function() {
         $(".page-content-head:first").hide();
       });
@@ -124,9 +124,9 @@ include("fbegin.inc");?>
         <section class="col-xs-12">
           <div class="content-box" style="padding: 20px;">
             <div class="table-responsive">
-              <img src="/ui/themes/<?=$themename;?>/build/images/default-logo.png" border="0" alt="logo" />
+              <img src="/ui/themes/<?=$themename;?>/build/images/default-logo.<?=file_exists("/usr/local/opnsense/www/themes/{$themename}/build/images/default-logo.svg") ? "svg" : "png";?>" border="0" alt="logo" style="max-width:380px;" />
               <br />
-              <div class="content-box-main">
+              <div class="content-box-main" style="padding-bottom:0px;">
                 <?php
                     if (isset($config['trigger_initial_wizard'])) {
                         echo '<p>' . sprintf(gettext('Welcome to %s!'), $g['product_name']) . "</p>\n";
@@ -138,7 +138,8 @@ include("fbegin.inc");?>
                             'Please consider donating to the project to help us with our overhead costs. ' .
                             'See %sour website%s to donate or purchase available %s support services.'),
                             '<a target="_new" href="' . $g['product_website'] . '">', '</a>', $g['product_name']) . "</p>\n";
-                        echo '<p class="__nomb">' . sprintf(gettext('Click to %scontinue to the dashboard%s.'), '<a href="/">', '</a>') . "</p>\n";
+                        echo '<p class="__nomb">' . sprintf(gettext('Click to %scontinue to the dashboard%s.'), '<a href="/">', '</a>') . ' ';
+                        echo sprintf(gettext('Or click to %scheck for updates%s.'), '<a href="/ui/core/firmware#checkupdate">', '</a>'). "</p>\n";
                     }
                 ?>
               </div>
@@ -157,8 +158,8 @@ include("fbegin.inc");?>
   // normal dashboard
   else:?>
 
-<script src='/ui/js/jquery-sortable.js'></script>
-<script type="text/javascript">
+<script src="<?= cache_safe('/ui/js/jquery-sortable.js') ?>"></script>
+<script>
   function addWidget(selectedDiv) {
       $('#'+selectedDiv).show();
       $('#add_widget_'+selectedDiv).hide();
@@ -167,7 +168,7 @@ include("fbegin.inc");?>
   }
 
   function configureWidget(selectedDiv) {
-      selectIntLink = '#' + selectedDiv + "-settings";
+      let selectIntLink = '#' + selectedDiv + "-settings";
       if ($(selectIntLink).css('display') == "none") {
           $(selectIntLink).show();
       } else {
@@ -209,7 +210,7 @@ include("fbegin.inc");?>
               // only capture visible widgets
               var index_str = "0000000" + index;
               index_str = index_str.substr(index_str.length-8);
-              col_index = $(this).parent().attr("id").split('_')[1];
+              let col_index = $(this).parent().attr("id").split('_')[1];
               widgetInfo.push($(this).attr('id')+'-container:'+index_str+'-'+col_index+':'+$('input[name='+$(this).attr('id')+'-config]').val());
               index++;
           }
@@ -234,7 +235,7 @@ include("fbegin.inc");?>
           if ($(this).data('callback') != undefined) {
               callbacks.push({'function' : $(this).data('callback'), 'plugin': $(this).data('plugin'), 'sender': $(this)});
           }
-      })
+      });
       // collect data for provided plugins
       $.ajax("/widgets/api/get.php",{type: 'get', cache: false, dataType: "json", data: {'load': plugins.join(',')}})
         .done(function(response) {
@@ -253,7 +254,7 @@ include("fbegin.inc");?>
   }
 </script>
 
-<script type="text/javascript">
+<script>
   $( document ).ready(function() {
       // rearrange widgets to stored column
       $(".widgetdiv").each(function(){
@@ -275,7 +276,7 @@ include("fbegin.inc");?>
 
       // sortable widgets
       $(".dashboard_grid_column").sortable({
-        handle: '.content-box-head',
+        handle: '.widget-sort-handle',
         group: 'dashboard_grid_column',
         itemSelector: '.widgetdiv',
         containerSelector: '.dashboard_grid_column',
@@ -290,16 +291,16 @@ include("fbegin.inc");?>
           if ($("#column_count_input").val() != $("#column_count").val()) {
               showSave();
           }
-         $("#column_count_input").val($("#column_count").val());
-         $(".dashboard_grid_column").each(function(){
-           var widget_col = $(this);
-           $.each(widget_col.attr("class").split(' '), function(index, classname) {
-              if (classname.indexOf('col-md') > -1) {
-                  widget_col.removeClass(classname);
-              }
-           });
-           widget_col.addClass('col-md-'+(12 / $("#column_count_input").val()));
-         });
+          $("#column_count_input").val($("#column_count").val());
+          $(".dashboard_grid_column").each(function(){
+              var widget_col = $(this);
+              $.each(widget_col.attr("class").split(' '), function(index, classname) {
+                  if (classname.indexOf('col-md') > -1) {
+                      widget_col.removeClass(classname);
+                  }
+              });
+              widget_col.addClass('col-md-'+(12 / $("#column_count_input").val()));
+          });
       });
       $("#column_count").change();
       // trigger initial ajax data poller
@@ -315,6 +316,7 @@ include("fbegin.inc");?>
               }
           });
       });
+      $('.selectpicker_widget').selectpicker('refresh');
   });
 </script>
 
@@ -335,7 +337,7 @@ include("fbegin.inc");?>
         </div>
       </div>
       <div id="dashboard_container" class="row" style="display:none">
-        <div class="col-xs-12 col-md-4 dashboard_grid_column hidden" id="dashboard_colx">
+        <div class="col-xs-12 col-md-2 dashboard_grid_column hidden" id="dashboard_colx">
 
 <?php
       foreach ($widgetCollection as $widgetItem):
@@ -385,20 +387,22 @@ include("fbegin.inc");?>
                   </h3></li>
                   <li class="pull-right">
                     <div class="btn-group">
-                      <button type="button" class="btn btn-default btn-xs disabled" id="<?= $widgetItem['name'] ?>-configure" onclick='return configureWidget("<?=  $widgetItem['name'] ?>")' style="cursor:pointer" ><span class="glyphicon glyphicon-pencil"></span></button>
-                      <button type="button" class="btn btn-default btn-xs" title="minimize" id="<?= $widgetItem['name'] ?>-min" onclick='return minimizeWidget("<?= $widgetItem['name'] ?>",true)' style="display:<?= $mindiv ?>;"><span class="glyphicon glyphicon-minus"></span></button>
-                      <button type="button" class="btn btn-default btn-xs" title="maximize" id="<?= $widgetItem['name'] ?>-max" onclick='return showWidget("<?= $widgetItem['name'] ?>",true)' style="display:<?= $mindiv == 'none' ? 'inline' : 'none' ?>;"><span class="glyphicon glyphicon-plus"></span></button>
-                      <button type="button" class="btn btn-default btn-xs" title="remove widget" onclick='return closeWidget("<?= $widgetItem['name'] ?>",true)'><span class="glyphicon glyphicon-remove"></span></button>
+                      <button type="button" class="btn btn-default btn-xs disabled" id="<?= $widgetItem['name'] ?>-configure" onclick='return configureWidget("<?=  $widgetItem['name'] ?>")' style="cursor:pointer"><i class="fa fa-pencil fa-fw"></i></button>
+                      <button type="button" class="btn btn-default btn-xs" title="minimize" id="<?= $widgetItem['name'] ?>-min" onclick='return minimizeWidget("<?= $widgetItem['name'] ?>",true)' style="display:<?= $mindiv ?>;"><i class="fa fa-minus fa-fw"></i></button>
+                      <button type="button" class="btn btn-default btn-xs" title="maximize" id="<?= $widgetItem['name'] ?>-max" onclick='return showWidget("<?= $widgetItem['name'] ?>",true)' style="display:<?= $mindiv == 'none' ? 'inline' : 'none' ?>;"><i class="fa fa-plus fa-fw"></i></button>
+                      <button type="button" class="btn btn-default btn-xs" title="remove widget" onclick='return closeWidget("<?= $widgetItem['name'] ?>",true)'><i class="fa fa-remove fa-fw"></i></button>
                     </div>
                   </li>
                 </ul>
+                <div class="container-fluid widget-sort-handle">
+                </div>
               </header>
               <div class="content-box-main collapse in" id="<?= $widgetItem['name'] ?>-container" style="display:<?= $mindiv ?>">
                 <input type="hidden" value="<?= $inputdisplay ?>" id="<?= $widgetItem['name'] ?>-config" name="<?= $widgetItem['name'] ?>-config" />
 <?php
                 if ($divdisplay != "block"):?>
                   <div id="<?= $widgetItem['name'] ?>-loader" style="display:<?= $display ?>;">
-                      &nbsp;&nbsp;<span class="glyphicon glyphicon-refresh"></span> <?= gettext("Save to load widget") ?>
+                      &nbsp;&nbsp;<i class="fa fa-refresh"></i> <?= gettext("Save to load widget") ?>
                   </div>
 <?php
                 else:
@@ -411,13 +415,15 @@ include("fbegin.inc");?>
 <?php
           endforeach;?>
           </div>
-          <div class="col-md-4 dashboard_grid_column" id="dashboard_col1"></div>
-          <div class="col-md-4 dashboard_grid_column" id="dashboard_col2"></div>
-          <div class="col-md-4 dashboard_grid_column" id="dashboard_col3"></div>
-          <div class="col-md-4 dashboard_grid_column" id="dashboard_col4"></div>
+          <div class="col-md-2 dashboard_grid_column" id="dashboard_col1"></div>
+          <div class="col-md-2 dashboard_grid_column" id="dashboard_col2"></div>
+          <div class="col-md-2 dashboard_grid_column" id="dashboard_col3"></div>
+          <div class="col-md-2 dashboard_grid_column" id="dashboard_col4"></div>
+          <div class="col-md-2 dashboard_grid_column" id="dashboard_col5"></div>
+          <div class="col-md-2 dashboard_grid_column" id="dashboard_col6"></div>
       </div>
     </div>
 </section>
-<?php
-  endif;
-include("foot.inc");?>
+<?php endif;
+
+include("foot.inc");

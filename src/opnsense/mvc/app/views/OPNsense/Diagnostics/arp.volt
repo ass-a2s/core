@@ -26,7 +26,7 @@ POSSIBILITY OF SUCH DAMAGE.
 
 #}
 
-<script type="text/javascript">
+<script>
     $( document ).ready(function() {
         /**
          * fetch system arp table
@@ -38,13 +38,12 @@ POSSIBILITY OF SUCH DAMAGE.
                 multiSelect: false
             };
             $("#grid-arp").bootgrid('destroy');
-            ajaxGet(url = "/api/diagnostics/interface/getArp",
-                    sendData = {}, callback = function (data, status) {
+            ajaxGet("/api/diagnostics/interface/getArp", {}, function (data, status) {
                         if (status == "success") {
                             var html = [];
                             $.each(data, function (key, value) {
                                 var fields = ["ip", "mac", "manufacturer", "intf", "intf_description", "hostname"];
-                                tr_str = '<tr>';
+                                let tr_str = '<tr>';
                                 for (var i = 0; i < fields.length; i++) {
                                     if (value[fields[i]] != null) {
                                         tr_str += '<td>' + value[fields[i]] + '</td>';
@@ -61,6 +60,26 @@ POSSIBILITY OF SUCH DAMAGE.
                     }
             );
         }
+
+        $("#flushModal").click(function(event){
+          BootstrapDialog.show({
+            type:BootstrapDialog.TYPE_DANGER,
+            title: "{{ lang._('Flush ARP Table') }}",
+            message: "{{ lang._('Flush the ARP cache manually, in case your ARP cache contains invalid data.') }}",
+            buttons: [{
+                      label: "<?= gettext('Close');?>",
+                      action: function(dialogRef) {
+                        dialogRef.close();
+                      }}, {
+                      label: "<?= gettext('Flush ARP Table');?>",
+                      action: function(dialogRef) {
+                        ajaxCall("/api/diagnostics/interface/flushArp", {}, function (data, status) {
+                            $("#refresh").click();
+                        });
+                    }
+                  }]
+          }); // end BootstrapDialog.show
+        }); // end .click(function(event)
 
         // initial fetch
         $("#refresh").click(updateARP);
@@ -96,6 +115,10 @@ POSSIBILITY OF SUCH DAMAGE.
                 <div class="row">
                     <div class="col-xs-12">
                         <div class="pull-right">
+                            <button type="button" class="btn btn-default" id="flushModal">
+                                <span>{{ lang._('Flush') }}</span>
+                                <span class="fa fa-trash"></span>
+                            </button>
                             <button id="refresh" type="button" class="btn btn-default">
                                 <span>{{ lang._('Refresh') }}</span>
                                 <span class="fa fa-refresh"></span>

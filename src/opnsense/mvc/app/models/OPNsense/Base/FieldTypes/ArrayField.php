@@ -76,7 +76,7 @@ class ArrayField extends BaseField
     public function add()
     {
         $new_record = array();
-        foreach ($this->internalTemplateNode->__items as $key => $node) {
+        foreach ($this->internalTemplateNode->iterateItems() as $key => $node) {
             if ($node->isContainer()) {
                 // validate child nodes, nesting not supported in this version.
                 throw new \Exception("Unsupported copy, Array doesn't support nesting.");
@@ -89,6 +89,8 @@ class ArrayField extends BaseField
             $this->__reference . "." . $nodeUUID,
             $this->internalXMLTagName
         );
+        $parentmodel = $this->getParentModel();
+        $container_node->setParentModel($parentmodel);
 
         foreach ($new_record as $key => $node) {
             // initialize field with new internal id and defined default value

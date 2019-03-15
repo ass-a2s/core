@@ -1,41 +1,36 @@
 <?php
 
 /*
-    Copyright (C) 2014-2016 Deciso B.V.
-    Copyright (C) 2003-2004 Manuel Kasper <mk@neon1.net>.
-    Copyright (C) 2011 Seth Mos <seth.mos@dds.nl>.
-    All rights reserved.
-
-    Redistribution and use in source and binary forms, with or without
-    modification, are permitted provided that the following conditions are met:
-
-    1. Redistributions of source code must retain the above copyright notice,
-       this list of conditions and the following disclaimer.
-
-    2. Redistributions in binary form must reproduce the above copyright
-       notice, this list of conditions and the following disclaimer in the
-       documentation and/or other materials provided with the distribution.
-
-    THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
-    INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
-    AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
-    AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
-    OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-    SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-    INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-    CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-    ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-    POSSIBILITY OF SUCH DAMAGE.
-*/
+ * Copyright (C) 2014-2016 Deciso B.V.
+ * Copyright (C) 2003-2004 Manuel Kasper <mk@neon1.net>
+ * Copyright (C) 2011 Seth Mos <seth.mos@dds.nl>
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
+ * AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
+ * OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ */
 
 require_once("guiconfig.inc");
 require_once("interfaces.inc");
 require_once("services.inc");
-
-function staticmapcmp($a, $b)
-{
-    return ipcmp($a['ipaddrv6'], $b['ipaddrv6']);
-}
 
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     // handle identifiers and action
@@ -76,11 +71,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     config_read_array('dhcpdv6', $if, 'staticmap');
 
     /* input validation */
-    $reqdfields = explode(" ", "duid");
-    $reqdfieldsn = array(gettext("DUID Identifier"));
-
-    do_input_validation($pconfig, $reqdfields, $reqdfieldsn, $input_errors);
-
     if (!empty($pconfig['hostname'])) {
         preg_match("/\-\$/", $pconfig['hostname'], $matches);
         if ($matches) {
@@ -95,7 +85,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     if (!empty($pconfig['ipaddrv6']) && !is_ipaddrv6($pconfig['ipaddrv6'])) {
         $input_errors[] = gettext("A valid IPv6 address must be specified.");
     }
-    if (empty($pconfig['duid'])) {
+
+    if (empty($pconfig['duid']) || preg_match('/^([a-fA-F0-9]{2}[:])*([a-fA-F0-9]{2}){1}$/', $pconfig['duid']) !== 1) {
         $input_errors[] = gettext("A valid DUID Identifier must be specified.");
     }
 
@@ -125,7 +116,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
             $config['dhcpdv6'][$if]['staticmap'][] = $mapent;
         }
 
-        usort($config['dhcpdv6'][$if]['staticmap'], "staticmapcmp");
+        usort($config['dhcpdv6'][$if]['staticmap'], function ($a, $b) {
+            return ipcmp($a['ipaddrv6'], $b['ipaddrv6']);
+        });
 
         write_config();
 
@@ -159,17 +152,17 @@ include("head.inc");
               <div class="table-responsive">
                 <table class="table table-striped opnsense_standard_table_form">
                   <tr>
-                    <td width="22%" valign="top"><strong><?=gettext("Static DHCPv6 Mapping");?></strong></td>
-                    <td width="78%" align="right">
+                    <td style="width:22%"><strong><?=gettext("Static DHCPv6 Mapping");?></strong></td>
+                    <td style="width:78%; text-align:right">
                       <small><?=gettext("full help"); ?> </small>
-                      <i class="fa fa-toggle-off text-danger"  style="cursor: pointer;" id="show_all_help_page" type="button"></i>
+                      <i class="fa fa-toggle-off text-danger"  style="cursor: pointer;" id="show_all_help_page"></i>
                     </td>
                   </tr>
                   <tr>
                     <td><a id="help_for_duid" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("DUID Identifier");?></td>
                     <td>
                       <input name="duid" type="text" value="<?=$pconfig['duid'];?>" />
-                      <div class="hidden" for="help_for_duid">
+                      <div class="hidden" data-for="help_for_duid">
                         <?=gettext("Enter a DUID Identifier in the following format: ");?><br />
                         "<?= gettext('DUID-LLT - ETH -- TIME --- ---- ADDR ----') ?>" <br />
                         "xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx"
@@ -180,10 +173,13 @@ include("head.inc");
                     <td><a id="help_for_ipaddrv6" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("IPv6 address");?></td>
                     <td>
                       <input name="ipaddrv6" type="text" value="<?=$pconfig['ipaddrv6'];?>" />
-                      <div class="hidden" for="help_for_ipaddrv6">
+                      <div class="hidden" data-for="help_for_ipaddrv6">
                         <?=gettext("If an IPv6 address is entered, the address must be outside of the pool.");?>
                         <br />
                         <?=gettext("If no IPv6 address is given, one will be dynamically allocated from the pool.");?>
+                        <br />
+                        <?= gettext("When using a static WAN address, this should be entered using the full IPv6 address. " .
+                        "When using a dynamic WAN address, only enter the suffix part (i.e. ::1:2:3:4)."); ?>
                       </div>
                     </td>
                   </tr>
@@ -191,7 +187,7 @@ include("head.inc");
                     <td><a id="help_for_hostname" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Hostname");?></td>
                     <td>
                       <input name="hostname" type="text" value="<?=$pconfig['hostname'];?>" />
-                      <div class="hidden" for="help_for_hostname">
+                      <div class="hidden" data-for="help_for_hostname">
                         <?=gettext("Name of the host, without domain part.");?>
                       </div>
                     </td>
@@ -200,7 +196,7 @@ include("head.inc");
                     <td><a id="help_for_domain" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Domain name");?></td>
                     <td>
                       <input name="domain" type="text" value="<?=$pconfig['domain'];?>" />
-                      <div class="hidden" for="help_for_domain">
+                      <div class="hidden" data-for="help_for_domain">
                         <?=gettext("The default is to use the domain name of this system as the default domain name provided by DHCP. You may specify an alternate domain name here.");?>
                       </div>
                     </td>
@@ -210,7 +206,7 @@ include("head.inc");
                     <td><a id="help_for_filename" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?= gettext('Netboot filename') ?></td>
                     <td>
                       <input name="filename" type="text" value="<?=$pconfig['filename'];?>" />
-                      <div class="hidden" for="help_for_filename">
+                      <div class="hidden" data-for="help_for_filename">
                         <?= gettext('Name of the file that should be loaded when this host boots off of the network, overrides setting on main page.') ?>
                       </div>
                     </td>
@@ -219,7 +215,7 @@ include("head.inc");
                     <td><a id="help_for_rootpath" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?= gettext('Root Path') ?></td>
                     <td>
                       <input name="rootpath" type="text" value="<?=$pconfig['rootpath'];?>" />
-                      <div class="hidden" for="help_for_rootpath">
+                      <div class="hidden" data-for="help_for_rootpath">
                         <?= gettext('Enter the root-path-string, overrides setting on main page.') ?>
                       </div>
                     </td>
@@ -230,7 +226,7 @@ include("head.inc");
                     <td><a id="help_for_descr" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Description");?></td>
                     <td>
                       <input name="descr" type="text" value="<?=$pconfig['descr'];?>" />
-                      <div class="hidden" for="help_for_descr">
+                      <div class="hidden" data-for="help_for_descr">
                         <?=gettext("You may enter a description here "."for your reference (not parsed).");?>
                       </div>
                     </td>
@@ -238,8 +234,8 @@ include("head.inc");
                   <tr>
                     <td></td>
                     <td>
-                      <input name="Submit" type="submit" class="formbtn btn btn-primary" value="<?=gettext("Save");?>" />
-                      <input type="button" class="formbtn btn btn-default" value="<?=gettext("Cancel");?>" onclick="window.location.href='/services_dhcpv6.php'" />
+                      <input name="Submit" type="submit" class="formbtn btn btn-primary" value="<?=html_safe(gettext('Save'));?>" />
+                      <input type="button" class="formbtn btn btn-default" value="<?=html_safe(gettext('Cancel'));?>" onclick="window.location.href='/services_dhcpv6.php?if=<?= html_safe($if) ?>'" />
                       <?php if (isset($id)): ?>
                       <input name="id" type="hidden" value="<?=$id;?>" />
                       <?php endif; ?>

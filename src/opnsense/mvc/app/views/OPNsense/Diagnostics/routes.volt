@@ -26,7 +26,7 @@ POSSIBILITY OF SUCH DAMAGE.
 
 #}
 
-<script type="text/javascript">
+<script>
     $( document ).ready(function() {
         var gridopt = {
             ajax: false,
@@ -39,19 +39,17 @@ POSSIBILITY OF SUCH DAMAGE.
         // update routes
         $("#update").click(function() {
             $('#processing-dialog').modal('show');
+            let resolve = '';
             if ($("#resolve").prop("checked")) {
                 resolve = "yes";
-            } else {
-                resolve = "";
             }
-            ajaxGet(url = "/api/diagnostics/interface/getRoutes/",
-                    sendData = {resolve:resolve}, callback = function (data, status) {
+            ajaxGet("/api/diagnostics/interface/getRoutes/", {resolve:resolve}, function (data, status) {
                         if (status == "success") {
                             $("#grid-routes").bootgrid('destroy');
                             var html = [];
                             $.each(data, function (key, value) {
                                 var fields = ["proto", "destination", "gateway", "flags", "use", "mtu", "netif","intf_description", "expire"];
-                                tr_str = '<tr>';
+                                let tr_str = '<tr>';
                                 for (var i = 0; i < fields.length; i++) {
                                     if (value[fields[i]] != null) {
                                         tr_str += '<td>' + value[fields[i]] + '</td>';
@@ -87,8 +85,8 @@ POSSIBILITY OF SUCH DAMAGE.
                             <th data-column-id="destination" data-type="string">{{ lang._('Destination') }}</th>
                             <th data-column-id="gateway" data-type="string">{{ lang._('Gateway') }}</th>
                             <th data-column-id="flags" data-type="string" data-css-class="hidden-xs hidden-sm" data-header-css-class="hidden-xs hidden-sm">{{ lang._('Flags') }}</th>
-                            <th data-column-id="use" data-type="string" data-css-class="hidden-xs hidden-sm" data-header-css-class="hidden-xs hidden-sm">{{ lang._('Use') }}</th>
-                            <th data-column-id="mtu" data-type="string" data-css-class="hidden-xs hidden-sm" data-header-css-class="hidden-xs hidden-sm">{{ lang._('MTU') }}</th>
+                            <th data-column-id="use" data-type="numeric" data-css-class="hidden-xs hidden-sm" data-header-css-class="hidden-xs hidden-sm">{{ lang._('Use') }}</th>
+                            <th data-column-id="mtu" data-type="numeric" data-css-class="hidden-xs hidden-sm" data-header-css-class="hidden-xs hidden-sm">{{ lang._('MTU') }}</th>
                             <th data-column-id="netif" data-type="string" data-css-class="hidden-xs hidden-sm" data-header-css-class="hidden-xs hidden-sm">{{ lang._('Netif') }}</th>
                             <th data-column-id="intf_description" data-type="string" data-css-class="hidden-xs hidden-sm" data-header-css-class="hidden-xs hidden-sm">{{ lang._('Netif (name)') }}</th>
                             <th data-column-id="expire" data-type="string" data-css-class="hidden-xs hidden-sm" data-header-css-class="hidden-xs hidden-sm">{{ lang._('Expire') }}</th>
@@ -125,7 +123,6 @@ POSSIBILITY OF SUCH DAMAGE.
                         </tr>
                     </table>
                 </div>
-                <hr/>
             </div>
         </div>
     </div>

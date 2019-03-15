@@ -1,32 +1,32 @@
 <?php
 
 /*
-    Copyright (C) 2014-2015 Deciso B.V.
-    Copyright (C) 2004 Scott Ullrich <sullrich@gmail.com>
-    Copyright (C) 2003-2004 Manuel Kasper <mk@neon1.net>.
-    All rights reserved.
-
-    Redistribution and use in source and binary forms, with or without
-    modification, are permitted provided that the following conditions are met:
-
-    1. Redistributions of source code must retain the above copyright notice,
-       this list of conditions and the following disclaimer.
-
-    2. Redistributions in binary form must reproduce the above copyright
-       notice, this list of conditions and the following disclaimer in the
-       documentation and/or other materials provided with the distribution.
-
-    THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
-    INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
-    AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
-    AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
-    OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-    SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-    INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-    CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-    ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-    POSSIBILITY OF SUCH DAMAGE.
-*/
+ * Copyright (C) 2014-2015 Deciso B.V.
+ * Copyright (C) 2004 Scott Ullrich <sullrich@gmail.com>
+ * Copyright (C) 2003-2004 Manuel Kasper <mk@neon1.net>
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
+ * AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
+ * OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ */
 
 require_once("guiconfig.inc");
 require_once("filter.inc");
@@ -49,7 +49,7 @@ function formTranslateAddresses() {
     if (isset($config['virtualip']['vip'])) {
         foreach ($config['virtualip']['vip'] as $sn) {
             if (!isset($sn['noexpand'])) {
-                if ($sn['mode'] == "proxyarp" && $sn['type'] == "network") {
+                if (in_array($sn['mode'], array("proxyarp", "other")) && $sn['type'] == "network") {
                     $start = ip2long32(gen_subnet($sn['subnet'], $sn['subnet_bits']));
                     $end = ip2long32(gen_subnet_max($sn['subnet'], $sn['subnet_bits']));
                     $len = $end - $start;
@@ -99,7 +99,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     if (isset($configId)) {
         // load data from config
         foreach (array('protocol','sourceport','dstport','natport','target','targetip'
-                ,'targetip_subnet','poolopts','interface','descr','nonat','log'
+                ,'targetip_subnet','poolopts','poolopts_sourcehashkey','interface','descr','nonat','log'
                 ,'disabled','staticnatport','nosync','ipprotocol','tag','tagged') as $fieldname) {
               if (isset($a_out[$configId][$fieldname])) {
                   $pconfig[$fieldname] = $a_out[$configId][$fieldname];
@@ -123,7 +123,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
 
     // initialize unused elements
     foreach (array('protocol','sourceport','dstport','natport','target','targetip',
-            'targetip_subnet','poolopts','interface','descr','nonat','tag','tagged',
+            'targetip_subnet','poolopts','poolopts_sourcehashkey','interface','descr','nonat','tag','tagged',
             'disabled','staticnatport','nosync','source','source_subnet','ipprotocol') as $fieldname) {
           if (!isset($pconfig[$fieldname])) {
               $pconfig[$fieldname] = null;
@@ -135,6 +135,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         } else {
             $pconfig['ipprotocol'] = 'inet';
         }
+    }
+    if (empty($pconfig['targetip'])) {
+        $pconfig['targetip'] = $pconfig['target'];
     }
 } elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $input_errors = array();
@@ -148,8 +151,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     }
 
     /* input validation */
-    $reqdfields = explode(" ", "interface protocol source source_subnet destination destination_subnet");
-    $reqdfieldsn = array(gettext("Interface"),gettext("Protocol"),gettext("Source"),gettext("Source bit count"),gettext("Destination"),gettext("Destination bit count"));
+    $reqdfields = explode(" ", "interface protocol source destination");
+    $reqdfieldsn = array(gettext("Interface"),gettext("Protocol"),gettext("Source"),gettext("Destination"));
 
     do_input_validation($pconfig, $reqdfields, $reqdfieldsn, $input_errors);
 
@@ -165,16 +168,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         }
     }
 
-    if (!(in_array($pconfig['source'], array("any","(self)")) || is_ipaddroralias($pconfig['source']))) {
-        $input_errors[] = gettext("A valid source must be specified.");
+    if (!is_specialnet($pconfig['source']) && !is_ipaddroralias($pconfig['source'])) {
+        $input_errors[] = sprintf(gettext("%s is not a valid source IP address or alias."), $pconfig['source']);
     }
+
     if (!empty($pconfig['source_subnet']) && !is_numericint($pconfig['source_subnet'])) {
         $input_errors[] = gettext("A valid source bit count must be specified.");
     }
     if ($pconfig['source'] == "any" && !empty($pconfig['source_not'])) {
         $input_errors[] = gettext("Negating source address of \"any\" is invalid.");
     }
-    if (!(in_array($pconfig['destination'], array("any","(self)")) || is_ipaddroralias($pconfig['destination']))) {
+    if (!is_specialnet($pconfig['destination']) && !is_ipaddroralias($pconfig['destination'])) {
         $input_errors[] = gettext("A valid destination must be specified.");
     }
     if (!empty($pconfig['destination_subnet']) && !is_numericint($pconfig['destination_subnet'])) {
@@ -188,10 +192,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         $input_errors[] = gettext("A valid target IP address must be specified.");
     }
     /* Verify Pool Options */
-    if (!empty($pconfig['targetip']) && !is_alias($pconfig['targetip']) && substr($pconfig['poolopts'], 0, 11) == "round-robin") {
+    if (!empty($pconfig['targetip']) && is_alias($pconfig['targetip']) && !empty($pconfig['poolopts']) && substr($pconfig['poolopts'], 0, 11) != 'round-robin') {
         $input_errors[] = gettext("Only Round Robin pool options may be chosen when selecting an alias.");
     }
-
+    /* Verify Source Hash Key if provided */
+    if (!empty($pconfig['poolopts_sourcehashkey'])){
+        if (empty($pconfig['poolopts']) || $pconfig['poolopts'] != 'source-hash') {
+            $input_errors[] = gettext("Source Hash Key is only valid for Source Hash type");
+        }
+        if (substr($pconfig['poolopts_sourcehashkey'], 0, 2) != "0x" || !ctype_xdigit(substr($pconfig['poolopts_sourcehashkey'], 2, 32)) ){
+            $input_errors[] = gettext("Source Hash Key must be 0x followed by 32 hexadecimal digits");
+        }
+    }
     // validate ipv4/v6, addresses should use selected address family
     foreach (array('source', 'destination', 'targetip') as $fieldname) {
         if (is_ipaddrv6($pconfig[$fieldname]) && $pconfig['ipprotocol'] != 'inet6') {
@@ -211,6 +223,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         $natent['tag'] = $pconfig['tag'];
         $natent['tagged'] = $pconfig['tagged'];
         $natent['poolopts'] = $pconfig['poolopts'];
+        $natent['poolopts_sourcehashkey'] = $pconfig['poolopts_sourcehashkey'];
         $natent['ipprotocol'] = $pconfig['ipprotocol'];
 
         if (isset($a_out[$id]['created']) && is_array($a_out[$id]['created']) ){
@@ -226,7 +239,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
             // a bit vague behaviour in "target" and "targetip", if a custom net is given
             // the backend code wants target to be filled with "other-subnet".
             // if any other known net is given, target is used to provide the actual address....
-            // -- can't remove this behaviour now without breaking old confid, so let's reimplement
+            // -- can't remove this behaviour now without breaking old config, so let's reimplement
             $natent['target'] = 'other-subnet';
             $natent['targetip'] = trim($pconfig['targetip']);
             $natent['targetip_subnet'] = $pconfig['targetip_subnet'];
@@ -259,7 +272,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
             $natent['source']['network'] = "any";
         } else if($pconfig['source'] == "(self)") {
             $natent['source']['network'] = "(self)";
-        } else if(is_alias($pconfig['source'])) {
+        } else if(is_alias($pconfig['source']) || is_specialnet($pconfig['source'])) {
             $natent['source']['network'] = trim($pconfig['source']);
         } else {
             if (is_ipaddrv6($pconfig['source'])) {
@@ -272,8 +285,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         // destination address
         if ($pconfig['destination'] == "any") {
             $natent['destination']['any'] = true;
-        } elseif (is_alias($pconfig['destination'])){
-            $natent['destination']['address'] = trim($pconfig['destination']) ;
+        } elseif (is_alias($pconfig['destination']) || is_specialnet($pconfig['destination'])){
+            $natent['destination']['network'] = trim($pconfig['destination']) ;
         } else {
             if (is_ipaddrv6($pconfig['destination'])) {
                 $natent['destination']['address'] = gen_subnetv6(trim($pconfig['destination']), $pconfig['destination_subnet']) . "/" . $pconfig['destination_subnet'];
@@ -327,7 +340,7 @@ include("head.inc");
 
 ?>
 <body>
-  <script type="text/javascript">
+  <script>
   $( document ).ready(function() {
 
     // select / input combination, link behaviour
@@ -346,6 +359,7 @@ include("head.inc");
                     } else {
                       $(this).removeClass("hidden");
                     }
+                    $(this).prop('disabled', false);
                   });
               } else {
                   // hide related controls
@@ -355,6 +369,7 @@ include("head.inc");
                     } else {
                       $(this).addClass("hidden");
                     }
+                    $(this).prop('disabled', true);
                   });
               }
             });
@@ -390,9 +405,9 @@ include("head.inc");
                     <table>
                         <tr>
                             <td><?=gettext("Edit Advanced Outbound NAT entry");?></td>
-                            <td colspan="2" align="right">
+                            <td colspan="2" style="text-align:right">
                                 <small><?=gettext("full help"); ?> </small>
-                                <i class="fa fa-toggle-off text-danger"  style="cursor: pointer;" id="show_all_help_page" type="button"></i>
+                                <i class="fa fa-toggle-off text-danger"  style="cursor: pointer;" id="show_all_help_page"></i>
                             </td>
                         </tr>
                     </table>
@@ -403,16 +418,16 @@ include("head.inc");
                   <td>
                     <input name="disabled" type="checkbox" id="disabled" value="yes" <?= !empty($pconfig['disabled']) ? "checked=\"checked\"" : ""; ?> />
                     <strong><?=gettext("Disable this rule"); ?></strong>
-                    <div class="hidden" for="help_for_disabled">
+                    <div class="hidden" data-for="help_for_disabled">
                       <?=gettext("Set this option to disable this rule without removing it from the list."); ?>
                     </div>
                   </td>
                 </tr>
                 <tr>
                   <td><a id="help_for_do_not_nat" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Do not NAT");?></td>
-                  <td width="78%" class="vtable">
+                  <td style="width:78%" class="vtable">
                     <input type="checkbox" name="nonat" <?=!empty($pconfig['nonat']) ? " checked=\"checked\"" : ""; ?> />
-                    <div class="hidden" for="help_for_do_not_nat">
+                    <div class="hidden" data-for="help_for_do_not_nat">
                       <?=gettext("Enabling this option will disable NAT for traffic matching this rule and stop processing Outbound NAT rules.");?><br />
                       <?=gettext("Hint: in most cases, you won't use this option.");?>
                     </div>
@@ -431,7 +446,7 @@ include("head.inc");
                         <?php endforeach; ?>
                       </select>
                     </div>
-                    <div class="hidden" for="help_for_interface">
+                    <div class="hidden" data-for="help_for_interface">
                       <?=gettext("Choose which interface this rule applies to"); ?>.<br />
                       <?=gettext("Hint: in most cases, you'll want to use WAN here"); ?>
                     </div>
@@ -449,7 +464,7 @@ include("head.inc");
 <?php
                     endforeach; ?>
                     </select>
-                    <div class="hidden" for="help_for_ipv46">
+                    <div class="hidden" data-for="help_for_ipv46">
                       <?=gettext("Select the Internet Protocol version this rule applies to");?>
                     </div>
                   </td>
@@ -465,7 +480,7 @@ include("head.inc");
 <?php                endforeach; ?>
               </select>
                     </div>
-                    <div class="hidden" for="help_for_proto">
+                    <div class="hidden" data-for="help_for_proto">
                       <?=gettext("Choose which IP protocol " ."this rule should match."); ?><br/>
                       <?=gettext("Hint: in most cases, you should specify"); ?> <em><?=gettext("TCP"); ?></em> &nbsp;<?=gettext("here."); ?>
                     </div>
@@ -475,7 +490,7 @@ include("head.inc");
                   <td> <a id="help_for_src_invert" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?= gettext('Source invert') ?></td>
                   <td>
                     <input name="source_not" type="checkbox" value="yes" <?= !empty($pconfig['source_not']) ? 'checked="checked"' : '' ?> />
-                    <div class="hidden" for="help_for_src_invert">
+                    <div class="hidden" data-for="help_for_src_invert">
                       <?=gettext("Use this option to invert the sense of the match."); ?>
                     </div>
                   </td>
@@ -488,13 +503,17 @@ include("head.inc");
                           <td>
                             <select name="source" id="source" class="selectpicker" data-live-search="true" data-size="5" data-width="auto">
                               <option data-other=true value="<?=$pconfig['source'];?>" <?=!is_alias($pconfig['source']) && !in_array($pconfig['source'],array('(self)','any'))  ? "selected=\"selected\"" : "";?>><?=gettext("Single host or Network"); ?></option>
-                              <option value="any" <?=$pconfig['source'] == "any" ? "selected=\"selected\"" : ""; ?>><?=gettext("any");?></option>
-                              <option value="(self)" <?=$pconfig['source'] == "(self)" ? "selected=\"selected\"" : ""; ?>><?=gettext("This Firewall (self)");?></option>
                               <optgroup label="<?=gettext("Aliases");?>">
 <?php                            foreach (legacy_list_aliases("network") as $alias):
 ?>
                                 <option value="<?=$alias['name'];?>" <?=$alias['name'] == $pconfig['source'] ? "selected=\"selected\"" : "";?>><?=htmlspecialchars($alias['name']);?></option>
 <?php                            endforeach; ?>
+                              </optgroup>
+                              <optgroup label="<?=gettext("Networks");?>">
+<?php                             foreach (get_specialnets(true) as $ifent => $ifdesc):
+?>
+                                      <option value="<?=$ifent;?>" <?= $pconfig['source'] == $ifent ? "selected=\"selected\"" : ""; ?>><?=$ifdesc;?></option>
+<?php                              endforeach; ?>
                               </optgroup>
                           </select>
                         </td>
@@ -504,7 +523,7 @@ include("head.inc");
                           <div class="input-group">
                           <!-- updates to "other" option in  source -->
                           <input type="text" for="source" id="src_address" value="<?=$pconfig['source'];?>" aria-label="<?=gettext("Source address");?>"/>
-                          <select name="source_subnet"  data-network-id="src_address" class="selectpicker ipv4v6net" data-size="5" id="srcmask"  data-width="auto" for="source" >
+                          <select name="source_subnet"  data-network-id="src_address" class="selectpicker ipv4v6net input-group-btn" data-size="5" id="srcmask"  data-width="auto" for="source" >
                           <?php for ($i = 128; $i > 0; $i--): ?>
                             <option value="<?=$i;?>" <?= $i == $pconfig['source_subnet'] ? "selected=\"selected\"" : ""; ?>><?=$i;?></option>
                           <?php endfor; ?>
@@ -513,7 +532,7 @@ include("head.inc");
                         </td>
                       </tr>
                     </table>
-                    <div class="hidden" for="help_for_source">
+                    <div class="hidden" data-for="help_for_source">
                       <?=gettext("Enter the source network for the outbound NAT mapping.");?>
                     </div>
                   </td>
@@ -549,7 +568,7 @@ include("head.inc");
                         </tr>
                       </tbody>
                     </table>
-                    <div class="hidden" for="help_for_src_port">
+                    <div class="hidden" data-for="help_for_src_port">
                       <?=gettext("(leave blank for any)");?>
                     </div>
                   </td>
@@ -558,7 +577,7 @@ include("head.inc");
                   <td> <a id="help_for_dst_invert" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?= gettext('Destination invert') ?></td>
                   <td>
                     <input name="destination_not" type="checkbox" value="yes" <?= !empty($pconfig['destination_not']) ? 'checked="checked"' : '' ?> />
-                    <div class="hidden" for="help_for_dst_invert">
+                    <div class="hidden" data-for="help_for_dst_invert">
                       <?=gettext("Use this option to invert the sense of the match."); ?>
                     </div>
                   </td>
@@ -571,12 +590,17 @@ include("head.inc");
                           <td>
                             <select name="destination" id="destination" class="selectpicker" data-live-search="true" data-size="5" data-width="auto">
                               <option data-other=true value="<?=$pconfig['destination'];?>" <?=!is_alias($pconfig['destination']) && $pconfig['destination'] != 'any' ? "selected=\"selected\"" : "";?>><?=gettext("Single host or Network"); ?></option>
-                              <option value="any" <?=$pconfig['destination'] == "any" ? "selected=\"selected\"" : ""; ?>><?=gettext("any");?></option>
                               <optgroup label="<?=gettext("Aliases");?>">
-<?php                        foreach (legacy_list_aliases("network") as $alias):
+<?php                             foreach (legacy_list_aliases("network") as $alias):
 ?>
-                                <option value="<?=$alias['name'];?>" <?=$alias['name'] == $pconfig['destination'] ? "selected=\"selected\"" : "";?>><?=htmlspecialchars($alias['name']);?></option>
-<?php                          endforeach; ?>
+                                      <option value="<?=$alias['name'];?>" <?=$alias['name'] == $pconfig['destination'] ? "selected=\"selected\"" : "";?>><?=htmlspecialchars($alias['name']);?></option>
+<?php                              endforeach; ?>
+                              </optgroup>
+                              <optgroup label="<?=gettext("Networks");?>">
+<?php                             foreach (get_specialnets(true) as $ifent => $ifdesc):
+?>
+                                      <option value="<?=$ifent;?>" <?= $pconfig['destination'] == $ifent ? "selected=\"selected\"" : ""; ?>><?=$ifdesc;?></option>
+<?php                              endforeach; ?>
                               </optgroup>
                           </select>
                         </td>
@@ -586,7 +610,7 @@ include("head.inc");
                           <div class="input-group">
                           <!-- updates to "other" option in  source -->
                           <input type="text" id="dst_address" for="destination" value="<?=$pconfig['destination'];?>" aria-label="<?=gettext("Destination address");?>"/>
-                          <select name="destination_subnet" data-network-id="dst_address" class="selectpicker ipv4v6net" id="dstmask" data-size="5" data-width="auto" for="destination" >
+                          <select name="destination_subnet" data-network-id="dst_address" class="selectpicker ipv4v6net input-group-btn" id="dstmask" data-size="5" data-width="auto" for="destination" >
                           <?php for ($i = 128; $i > 0; $i--): ?>
                             <option value="<?=$i;?>" <?= $i == $pconfig['destination_subnet'] ? "selected=\"selected\"" : ""; ?>><?=$i;?></option>
                           <?php endfor; ?>
@@ -595,8 +619,8 @@ include("head.inc");
                         </td>
                       </tr>
                     </table>
-                    <div class="hidden" for="help_for_destination">
-                      <?=gettext("Enter the source network for the outbound NAT mapping.");?>
+                    <div class="hidden" data-for="help_for_destination">
+                      <?=gettext("Enter the destination network for the outbound NAT mapping.");?>
                     </div>
                   </td>
                 </tr>
@@ -631,7 +655,7 @@ include("head.inc");
                         </tr>
                       </tbody>
                     </table>
-                    <div class="hidden" for="help_for_dstport">
+                    <div class="hidden" data-for="help_for_dstport">
                       <?=gettext("(leave blank for any)");?>
                     </div>
                   </td>
@@ -644,9 +668,9 @@ include("head.inc");
                           <td>
                             <select name="targetip" id="targetip" class="selectpicker" data-live-search="true" data-size="5" data-width="auto">
                                 <option value="" <?= empty($pconfig['targetip']) ? "selected=\"selected\"" : "";?> > <?=gettext("Interface address");?> </option>
-                                <option data-other=true value="<?=$pconfig['targetip'];?>" <?= !empty($pconfig['target']) && !array_key_exists($pconfig['targetip'], formTranslateAddresses() ) ? "selected=\"selected\"" : "";?>><?=gettext("Single host or Network"); ?></option>
+                                <option data-other=true value="<?=$pconfig['targetip'];?>" <?= !empty($pconfig['targetip']) && !array_key_exists($pconfig['targetip'], formTranslateAddresses() ) ? "selected=\"selected\"" : "";?>><?=gettext("Single host or Network"); ?></option>
 <?php                              foreach (formTranslateAddresses() as $optKey => $optValue): ?>
-                                    <option value="<?=$optKey;?>" <?= $pconfig['target'] == $optKey ? "selected=\"selected\"" : ""; ?>>
+                                    <option value="<?=$optKey;?>" <?= $pconfig['targetip'] == $optKey ? "selected=\"selected\"" : ""; ?>>
                                       <?=$optValue;?>
                                     </option>
 <?php                              endforeach; ?>
@@ -658,7 +682,7 @@ include("head.inc");
                             <div class="input-group">
                               <!-- updates to "other" option in  source -->
                               <input type="text" id="targetip_text" for="targetip" value="<?=$pconfig['targetip'];?>" aria-label="<?=gettext("Translation address");?>"/>
-                              <select name="targetip_subnet" data-network-id="targetip_text" class="selectpicker ipv4v6net" id="targetip_subnet" data-size="5" data-width="auto" for="targetip" >
+                              <select name="targetip_subnet" data-network-id="targetip_text" class="selectpicker ipv4v6net input-group-btn" id="targetip_subnet" data-size="5" data-width="auto" for="targetip" >
                               <?php for ($i = 128; $i > 0; $i--): ?>
                                 <option value="<?=$i;?>" <?= $i == $pconfig['targetip_subnet'] ? "selected=\"selected\"" : ""; ?>><?=$i;?></option>
                               <?php endfor; ?>
@@ -667,7 +691,7 @@ include("head.inc");
                           </td>
                         </tr>
                       </table>
-                      <div class="hidden" for="help_for_target">
+                      <div class="hidden" data-for="help_for_target">
                         <?=gettext("Packets matching this rule will be mapped to the IP address given here.");?><br />
                         <?=sprintf(gettext("If you want this rule to apply to another IP address rather than the IP address of the interface chosen above, ".
                                 "select it here (you will need to define %sVirtual IP addresses%s on the interface first)."),'<a href="firewall_virtual_ip.php">','</a>')?>
@@ -679,7 +703,7 @@ include("head.inc");
                   <td>
                     <input name="log" type="checkbox" id="log" value="yes" <?= !empty($pconfig['log']) ? "checked=\"checked\"" : ""; ?> />
                     <strong><?=gettext("Log packets that are handled by this rule");?></strong>
-                    <div class="hidden" for="help_for_log">
+                    <div class="hidden" data-for="help_for_log">
                       <?=sprintf(gettext("Hint: the firewall has limited local log space. Don't turn on logging for everything. If you want to do a lot of logging, consider using a %sremote syslog server%s."),'<a href="diag_logs_settings.php">','</a>') ?>
                     </div>
                   </td>
@@ -688,7 +712,7 @@ include("head.inc");
                   <td><a id="help_for_natport" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Translation") . " / " .gettext("port:");?></td>
                   <td>
                     <input name="natport" type="text" value="<?=$pconfig['natport'];?>" />
-                    <div class="hidden" for="help_for_natport">
+                    <div class="hidden" data-for="help_for_natport">
                       <?=gettext("Enter the source port for the outbound NAT mapping.");?>
                     </div>
                   </td>
@@ -702,44 +726,59 @@ include("head.inc");
                 <tr>
                   <td><a id="help_for_poolopts" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Pool Options:");?></td>
                   <td>
-                    <select name="poolopts" class="selectpicker">
-                      <option value="" <?=empty($pconfig['poolopts']) ? "selected=\"selected\"" : ""; ?>>
-                        <?=gettext("Default");?>
-                      </option>
-                      <option value="round-robin" <?=$pconfig['poolopts'] == "round-robin" ? "selected=\"selected\"" : ""; ?>>
-                        <?=gettext("Round Robin");?>
-                      </option>
-                      <option value="round-robin sticky-address" <?=$pconfig['poolopts'] == "round-robin sticky-address" ? "selected=\"selected\"" : ""; ?>>
-                        <?=gettext("Round Robin with Sticky Address");?>
-                      </option>
-                      <option value="random" <?=$pconfig['poolopts'] == "random" ? "selected=\"selected\"" : ""; ?>>
-                        <?=gettext("Random");?>
-                      </option>
-                      <option value="random sticky-address" <?=$pconfig['poolopts'] == "random sticky-address" ? "selected=\"selected\"" : ""; ?>>
-                        <?=gettext("Random with Sticky Address");?>
-                      </option>
-                      <option value="source-hash" <?=$pconfig['poolopts'] == "source-hash" ? "selected=\"selected\"" : ""; ?>>
-                        <?=gettext("Source Hash");?>
-                      </option>
-                      <option value="bitmask" <?=$pconfig['poolopts'] == "bitmask" ? "selected=\"selected\"" : ""; ?>>
-                        <?=gettext("Bitmask");?>
-                      </option>
-                    </select>
-                    <div class="hidden" for="help_for_poolopts">
-                      <?=gettext("Only Round Robin types work with Host Aliases. Any type can be used with a Subnet.");?><br />
-                      * <?=gettext("Round Robin: Loops through the translation addresses.");?><br />
-                      * <?=gettext("Random: Selects an address from the translation address pool at random.");?><br />
-                      * <?=gettext("Source Hash: Uses a hash of the source address to determine the translation address, ensuring that the redirection address is always the same for a given source.");?><br />
-                      * <?=gettext("Bitmask: Applies the subnet mask and keeps the last portion identical; 10.0.1.50 -&gt; x.x.x.50.");?><br />
-                      * <?=gettext("Sticky Address: The Sticky Address option can be used with the Random and Round Robin pool types to ensure that a particular source address is always mapped to the same translation address.");?><br />
-                    </div>
+                  <table class="table table-condensed">
+                    <tbody>
+                      <tr>
+                        <td>
+                        <select name="poolopts" id="poolopts" class="selectpicker">
+                        <option value="" <?=empty($pconfig['poolopts']) ? "selected=\"selected\"" : ""; ?>>
+                            <?=gettext("Default");?>
+                        </option>
+                        <option value="round-robin" <?=$pconfig['poolopts'] == "round-robin" ? "selected=\"selected\"" : ""; ?>>
+                            <?=gettext("Round Robin");?>
+                        </option>
+                        <option value="round-robin sticky-address" <?=$pconfig['poolopts'] == "round-robin sticky-address" ? "selected=\"selected\"" : ""; ?>>
+                            <?=gettext("Round Robin with Sticky Address");?>
+                        </option>
+                        <option value="random" <?=$pconfig['poolopts'] == "random" ? "selected=\"selected\"" : ""; ?>>
+                            <?=gettext("Random");?>
+                        </option>
+                        <option value="random sticky-address" <?=$pconfig['poolopts'] == "random sticky-address" ? "selected=\"selected\"" : ""; ?>>
+                            <?=gettext("Random with Sticky Address");?>
+                        </option>
+                        <option value="source-hash" data-other="true" <?=$pconfig['poolopts'] == "source-hash" ? "selected=\"selected\"" : ""; ?>>
+                            <?=gettext("Source Hash");?>
+                        </option>
+                        <option value="bitmask" <?=$pconfig['poolopts'] == "bitmask" ? "selected=\"selected\"" : ""; ?>>
+                            <?=gettext("Bitmask");?>
+                        </option>
+                        </select>
+                        <div class="hidden" data-for="help_for_poolopts">
+                          <?=gettext("Only Round Robin types work with Host Aliases. Any type can be used with a Subnet.");?><br />
+                          <ul>
+                            <li> <?=gettext("Round Robin: Loops through the translation addresses.");?></li>
+                            <li> <?=gettext("Random: Selects an address from the translation address pool at random.");?></li>
+                            <li> <?=gettext("Source Hash: Uses a hash of the source address to determine the translation address, ensuring that the redirection address is always the same for a given source. Optionally provide a Source Hash Key to make it persist when the ruleset is reloaded. Must be 0x followed by 32 hexadecimal digits.");?></li>
+                            <li> <?=gettext("Bitmask: Applies the subnet mask and keeps the last portion identical; 10.0.1.50 -&gt; x.x.x.50.");?></li>
+                            <li> <?=gettext("Sticky Address: The Sticky Address option can be used with the Random and Round Robin pool types to ensure that a particular source address is always mapped to the same translation address.");?></li>
+                          </ul>
+                        </div>
+                        </td>
+                        </tr>
+                        <tr>
+                        <td>
+                          <input type="text" id="poolopts_sourcehashkey" name="poolopts_sourcehashkey" for="poolopts" placeholder="Source Hash Key" value="<?=$pconfig['poolopts_sourcehashkey']?>"/>
+                        </td>
+                        </tr>
+                      </tbody>
+                    </table>
                   </td>
                 </tr>
                 <tr>
                     <td><a id="help_for_tag" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a>  <?=gettext("Set local tag"); ?></td>
                     <td>
                       <input name="tag" type="text" value="<?=$pconfig['tag'];?>" />
-                      <div class="hidden" for="help_for_tag">
+                      <div class="hidden" data-for="help_for_tag">
                         <?= gettext("You can mark a packet matching this rule and use this mark to match on other NAT/filter rules.") ?>
                       </div>
                     </td>
@@ -748,7 +787,7 @@ include("head.inc");
                     <td><a id="help_for_tagged" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Match local tag"); ?>   </td>
                     <td>
                       <input name="tagged" type="text" value="<?=$pconfig['tagged'];?>" />
-                      <div class="hidden" for="help_for_tagged">
+                      <div class="hidden" data-for="help_for_tagged">
                         <?=gettext("You can match packet on a mark placed before on another rule.")?>
                       </div>
                     </td>
@@ -757,7 +796,7 @@ include("head.inc");
                   <td><a id="help_for_nosync" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a>  <?=gettext("No XMLRPC Sync"); ?></td>
                   <td>
                     <input type="checkbox" value="yes" name="nosync" <?=!empty($pconfig['nosync']) ? "checked=\"checked\"" :"";?> />
-                    <div class="hidden" for="help_for_nosync">
+                    <div class="hidden" data-for="help_for_nosync">
                       <?=gettext("Hint: This prevents the rule on Master from automatically syncing to other CARP members. This does NOT prevent the rule from being overwritten on Slave.");?>
                     </div>
                   </td>
@@ -766,7 +805,7 @@ include("head.inc");
                   <td><a id="help_for_descr" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("Description"); ?></td>
                   <td>
                     <input name="descr" type="text" class="formfld unknown" id="descr" size="40" value="<?=$pconfig['descr'];?>" />
-                    <div class="hidden" for="help_for_descr">
+                    <div class="hidden" data-for="help_for_descr">
                       <?=gettext("You may enter a description here " ."for your reference (not parsed)."); ?>
                     </div>
                 </tr>
@@ -787,7 +826,7 @@ include("head.inc");
                 <tr>
                   <td><?=gettext("Created");?></td>
                   <td>
-                    <?= date(gettext("n/j/y H:i:s"), $a_out[$id]['created']['time']) ?> <?= gettext("by") ?> <strong><?= $a_out[$id]['created']['username'] ?></strong>
+                    <?= date(gettext('n/j/y H:i:s'), $a_out[$id]['created']['time']) ?> (<?= $a_out[$id]['created']['username'] ?>)
                   </td>
                 </tr>
 <?php
@@ -797,7 +836,7 @@ include("head.inc");
                 <tr>
                   <td><?=gettext("Updated");?></td>
                   <td>
-                    <?= date(gettext("n/j/y H:i:s"), $a_out[$id]['updated']['time']) ?> <?= gettext("by") ?> <strong><?= $a_out[$id]['updated']['username'] ?></strong>
+                    <?= date(gettext('n/j/y H:i:s'), $a_out[$id]['updated']['time']) ?> (<?= $a_out[$id]['updated']['username'] ?>)
                   </td>
                 </tr>
 <?php
@@ -807,8 +846,8 @@ include("head.inc");
                 <tr>
                   <td>&nbsp;</td>
                   <td>
-                    <input name="Submit" type="submit" class="btn btn-primary" value="<?=gettext("Save"); ?>" />
-                    <input type="button" class="btn btn-default" value="<?=gettext("Cancel");?>" onclick="window.location.href='/firewall_nat_out.php'" />
+                    <input name="Submit" type="submit" class="btn btn-primary" value="<?=html_safe(gettext('Save')); ?>" />
+                    <input type="button" class="btn btn-default" value="<?=html_safe(gettext('Cancel'));?>" onclick="window.location.href='/firewall_nat_out.php'" />
 <?php
                     if (isset($id)):
 ?>

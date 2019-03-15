@@ -76,8 +76,13 @@ class InterfaceField extends BaseField
     private $internalAddParentDevices = false;
 
     /**
+     * @var bool allow dynamic interfaces
+     */
+     private $internalAllowDynamic = false;
+
+    /**
      *  collect parents for lagg interfaces
-     *  @return named array containing device and lagg interface
+     *  @return array named array containing device and lagg interface
      */
     private function getConfigLaggInterfaces()
     {
@@ -100,7 +105,7 @@ class InterfaceField extends BaseField
 
     /**
      *  collect parents for vlan interfaces
-     *  @return named array containing device and vlan interfaces
+     *  @return array named array containing device and vlan interfaces
      */
     private function getConfigVLANInterfaces()
     {
@@ -131,6 +136,9 @@ class InterfaceField extends BaseField
             // Iterate over all interfaces configuration and collect data
             if (isset($configObj->interfaces) && $configObj->interfaces->count() > 0) {
                 foreach ($configObj->interfaces->children() as $key => $value) {
+                    if (!$this->internalAllowDynamic && !empty($value->internal_dynamic)) {
+                        continue;
+                    }
                     $allInterfaces[$key] = $value;
                     if (!empty($value->if)) {
                         $allInterfacesDevices[(string)$value->if] = $key;
@@ -183,13 +191,11 @@ class InterfaceField extends BaseField
                     }
                 }
                 if ($isMatched) {
-                    if ($value->descr == '') {
-                        self::$internalOptionList[$this->internalCacheKey][$key] = $key;
-                    } else {
-                        self::$internalOptionList[$this->internalCacheKey][$key] = (string)$value->descr;
-                    }
+                    self::$internalOptionList[$this->internalCacheKey][$key] =
+                        !empty($value->descr) ? (string)$value->descr : strtoupper($key);
                 }
             }
+            natcasesort(self::$internalOptionList[$this->internalCacheKey]);
         }
     }
 
@@ -229,6 +235,19 @@ class InterfaceField extends BaseField
             $this->internalMultiSelect = true;
         } else {
             $this->internalMultiSelect = false;
+        }
+    }
+
+    /**
+     * select if dynamic (hotplug) interfaces maybe selectable
+     * @param $value boolean value 0/1
+     */
+    public function setAllowDynamic($value)
+    {
+        if (trim(strtoupper($value)) == "Y") {
+            $this->internalAllowDynamic = true;
+        } else {
+            $this->internalAllowDynamic = false;
         }
     }
 

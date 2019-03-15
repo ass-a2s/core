@@ -26,7 +26,7 @@ POSSIBILITY OF SUCH DAMAGE.
 
 #}
 
-<script type="text/javascript">
+<script>
 
     $( document ).ready(function() {
         /*************************************************************************************************************
@@ -82,11 +82,10 @@ POSSIBILITY OF SUCH DAMAGE.
                 stdDialogConfirm('{{ lang._('Confirm removal') }}',
                     '{{ lang._('Do you want to remove the selected item?') }}',
                     '{{ lang._('Yes') }}', '{{ lang._('Cancel') }}', function () {
-                    ajaxCall(url="/api/captiveportal/service/delTemplate/" + uuid,
-                            sendData={},callback=function(data,status){
-                                // reload grid after delete
-                                $("#grid-templates").bootgrid("reload");
-                            });
+                    ajaxCall("/api/captiveportal/service/delTemplate/" + uuid, {},function(data,status){
+                        // reload grid after delete
+                        $("#grid-templates").bootgrid("reload");
+                    });
                 });
             });
             grid_templates.find(".command-download").on("click", function(e) {
@@ -122,7 +121,7 @@ POSSIBILITY OF SUCH DAMAGE.
          */
         $("#reconfigureAct").click(function(){
             $("#reconfigureAct_progress").addClass("fa fa-spinner fa-pulse");
-            ajaxCall(url="/api/captiveportal/service/reconfigure", sendData={}, callback=function(data,status) {
+            ajaxCall("/api/captiveportal/service/reconfigure", {}, function(data,status) {
                 // when done, disable progress animation.
                 $("#reconfigureAct_progress").removeClass("fa fa-spinner fa-pulse");
 
@@ -157,7 +156,7 @@ POSSIBILITY OF SUCH DAMAGE.
                 requestData['uuid'] = $("#templateUUID").val();
             }
             // save file content to server
-            ajaxCall(url="/api/captiveportal/service/saveTemplate", sendData=requestData, callback=function(data,status) {
+            ajaxCall("/api/captiveportal/service/saveTemplate", requestData, function(data,status) {
                 if (data['error'] == undefined) {
                     // saved, flush form data and hide modal
                     $("#grid-templates").bootgrid("reload");
@@ -182,7 +181,7 @@ POSSIBILITY OF SUCH DAMAGE.
     <li class="active"><a data-toggle="tab" href="#zones">{{ lang._('Zones') }}</a></li>
     <li><a data-toggle="tab" href="#template">{{ lang._('Templates') }}</a></li>
 </ul>
-<div class="tab-content content-box tab-content">
+<div class="tab-content content-box">
     <div id="zones" class="tab-pane fade in active">
         <!-- tab page "zones" -->
         <table id="grid-zones" class="table table-condensed table-hover table-striped table-responsive" data-editDialog="DialogZone">
@@ -241,7 +240,7 @@ POSSIBILITY OF SUCH DAMAGE.
 </div>
 
 {# include dialogs #}
-{{ partial("layout_partials/base_dialog",['fields':formDialogZone,'id':'DialogZone','label':'Edit zone'])}}
+{{ partial("layout_partials/base_dialog",['fields':formDialogZone,'id':'DialogZone','label':lang._('Edit zone')])}}
 
 <!-- upload (new) template content dialog -->
 <div class="modal fade" id="DialogTemplate" tabindex="-1" role="dialog" aria-labelledby="formDialogTemplateLabel" aria-hidden="true">

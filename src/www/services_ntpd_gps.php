@@ -1,32 +1,32 @@
 <?php
 
 /*
-    Copyright (C) 2014-2016 Deciso B.V.
-    Copyright (C) 2013 Dagorlad
-    Copyright (C) 2012 Jim Pingle <jimp@pfsense.org>
-    All rights reserved.
-
-    Redistribution and use in source and binary forms, with or without
-    modification, are permitted provided that the following conditions are met:
-
-    1. Redistributions of source code must retain the above copyright notice,
-       this list of conditions and the following disclaimer.
-
-    2. Redistributions in binary form must reproduce the above copyright
-       notice, this list of conditions and the following disclaimer in the
-       documentation and/or other materials provided with the distribution.
-
-    THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
-    INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
-    AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
-    AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
-    OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-    SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-    INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-    CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-    ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-    POSSIBILITY OF SUCH DAMAGE.
-*/
+ * Copyright (C) 2014-2016 Deciso B.V.
+ * Copyright (C) 2013 Dagorlad
+ * Copyright (C) 2012 Jim Pingle <jimp@pfsense.org>
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
+ * AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
+ * OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ */
 
 require_once("guiconfig.inc");
 require_once("services.inc");
@@ -79,7 +79,7 @@ include("head.inc");
 
 <body>
 
-<script type="text/javascript">
+<script>
 //<![CDATA[
   $( document ).ready(function() {
     $("#gpsprefer").click(function(){
@@ -88,14 +88,14 @@ include("head.inc");
         } else {
             $("#gpsselect").prop('checked', true);
         }
-    })
+    });
     $("#gpsselect").click(function(){
         if ($(this).prop('checked')) {
             $("#gpsprefer").prop('checked', false);
         } else {
             $("#gpsprefer").prop('checked', true);
         }
-    })
+    });
     $("#showgpsinitbox").click(function(event){
         $("#showgpsinitbox").parent().hide();
         $("#showgpsinit").show();
@@ -281,7 +281,7 @@ SureGPS =    #Sure Electronics SKG16B
             hexsum = ("00" + hexsum).slice(-2);
           }
           // Display the result
-          $("#nmeachecksum").html(hexsum);
+          $("#nmeachecksum").text(hexsum);
       });
   });
 
@@ -300,12 +300,12 @@ SureGPS =    #Sure Electronics SKG16B
                 <table class="table table-striped opnsense_standard_table_form">
                   <thead>
                     <tr>
-                      <td width="22%">
+                      <td style="width:22%">
                         <strong><?=gettext("NTP Serial GPS Configuration"); ?></strong>
                       </td>
-                      <td width="78%" align="right">
+                      <td style="width:78%; text-align:right">
                         <small><?=gettext("full help"); ?> </small>
-                        <i class="fa fa-toggle-off text-danger"  style="cursor: pointer;" id="show_all_help_page" type="button"></i>
+                        <i class="fa fa-toggle-off text-danger"  style="cursor: pointer;" id="show_all_help_page"></i>
                         &nbsp;&nbsp;
                       </td>
                     </tr>
@@ -315,17 +315,17 @@ SureGPS =    #Sure Electronics SKG16B
                       <td><a id="help_for_gps" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext("GPS"); ?></td>
                       <td>
                         <!-- Start with the original "Default", list a "Generic" and then specific configs alphabetically -->
-                        <select id="gpstype" name="type" class="formselect">
+                        <select id="gpstype" name="type">
                           <option value="Generic" title="Generic"<?=empty($pconfig['type']) || $pconfig['type'] == 'Generic' ? " selected=\"selected\"" : "";?>><?=gettext('Generic') ?></option>
                           <option value="Default"<?=$pconfig['type'] == 'Default' ? " selected=\"selected\"" : ""; ?>><?=gettext('Default') ?></option>
                           <option value="Garmin" title="$PGRM... Most Garmin"<?=$pconfig['type'] == 'Garmin' ? " selected=\"selected\"" :"";?>><?=gettext('Garmin') ?></option>
                           <option value="MediaTek" title="$PMTK... Adafruit, Fastrax, some Garmin and others"<?=$pconfig['type'] == 'MediaTek' ? " selected=\"selected\"" :"";?>>MediaTek</option>
-                          <option value="SiRF" title="$PSRF... Used by many devices"<?=$pconfig['type'] == 'sirf' ? " selected=\"selected\"" :"";?>><?=gettext('SiRF') ?></option>
+                          <option value="SiRF" title="$PSRF... Used by many devices"<?=$pconfig['type'] == 'SiRF' ? " selected=\"selected\"" :"";?>><?=gettext('SiRF') ?></option>
                           <option value="U-Blox" title="$PUBX... U-Blox 5, 6 and probably 7"<?=$pconfig['type'] == 'U-Blox' ? " selected=\"selected\"" : "";?>><?=gettext('U-Blox') ?></option>
                           <option value="SureGPS" title="$PMTK... Sure Electronics SKG16B"<?=$pconfig['type'] == 'SureGPS' ? " selected=\"selected\"" : "";?>><?=gettext('SureGPS') ?></option>
                           <option value="Custom"<?=$pconfig['type'] == 'Custom' ? " selected=\"selected\"" : ""; ?>><?=gettext('Custom') ?></option>
                         </select>
-                        <div class="hidden" for="help_for_gps">
+                        <div class="hidden" data-for="help_for_gps">
                           <?=gettext("This option allows you to select a predefined configuration.");?>
                           <br />
                           <strong><?=gettext("Note: ");?></strong><?=gettext("Select Generic if your GPS is not listed."); ?><br />
@@ -350,7 +350,7 @@ SureGPS =    #Sure Electronics SKG16B
 <?php
                           endforeach; ?>
                         </select>
-                        <div class="hidden" for="help_for_gpsport">
+                        <div class="hidden" data-for="help_for_gpsport">
                           <?=gettext("All serial ports are listed, be sure to pick the port with the GPS attached."); ?>
                         </div>
                         <br/>
@@ -363,7 +363,7 @@ SureGPS =    #Sure Electronics SKG16B
                           <option value="64" <?=$pconfig['speed'] === '64' ? " selected=\"selected\"" : "";?>>57600</option>
                           <option value="80" <?=$pconfig['speed'] === '80' ? " selected=\"selected\"" : "";?>>115200</option>
                         </select>
-                        <div class="hidden" for="help_for_gpsport">
+                        <div class="hidden" data-for="help_for_gpsport">
                           <?=gettext("Note: A higher baud rate is generally only helpful if the GPS is sending too many sentences. It is recommended to configure the GPS to send only one sentence at a baud rate of 4800 or 9600."); ?>
                         </div>
                       </td>
@@ -377,12 +377,12 @@ SureGPS =    #Sure Electronics SKG16B
                         <input type="hidden" name="nmea" value="<?=$pconfig['nmea'];?>" id="nmea">
                         <select id="gpsnmea" multiple="multiple" class="selectpicker">
                           <option value="0" <?=empty($pconfig['nmea']) ? " selected=\"selected\"" : ""; ?>><?=gettext("All");?></option>
-                          <option value="1" <?=$pconfig['nmea'] & 1 ? " selected=\"selected\"" : "";?>><?=gettext("RMC");?></option>
-                          <option value="2" <?=$pconfig['nmea'] & 2 ? " selected=\"selected\"" : "";?>><?=gettext("GGA");?></option>
-                          <option value="4" <?=$pconfig['nmea'] & 4 ? " selected=\"selected\"" : "";?>><?=gettext("GLL");?></option>
-                          <option value="8" <?=$pconfig['nmea'] & 8 ? " selected=\"selected\"" : "";?>><?=gettext("ZDA or ZDG");?></option>
+                          <option value="1" <?=intval($pconfig['nmea']) & 1 ? " selected=\"selected\"" : "";?>><?=gettext("RMC");?></option>
+                          <option value="2" <?=intval($pconfig['nmea']) & 2 ? " selected=\"selected\"" : "";?>><?=gettext("GGA");?></option>
+                          <option value="4" <?=intval($pconfig['nmea']) & 4 ? " selected=\"selected\"" : "";?>><?=gettext("GLL");?></option>
+                          <option value="8" <?=intval($pconfig['nmea']) & 8 ? " selected=\"selected\"" : "";?>><?=gettext("ZDA or ZDG");?></option>
                         </select>
-                        <div class="hidden" for="help_for_nmea">
+                        <div class="hidden" data-for="help_for_nmea">
                           <?=gettext("By default NTP will listen for all supported NMEA sentences. Here one or more sentences to listen for may be specified."); ?>
                         </div>
                       </td>
@@ -391,7 +391,7 @@ SureGPS =    #Sure Electronics SKG16B
                       <td><a id="help_for_fudge1" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?= gettext('Fudge time 1 (seconds)') ?></td>
                       <td>
                         <input name="fudge1" type="text" id="gpsfudge1" min="-1" max="1" size="20" value="<?=$pconfig['fudge1'];?>" />
-                        <div class="hidden" for="help_for_fudge1">
+                        <div class="hidden" data-for="help_for_fudge1">
                           <?= gettext("Fudge time 1 is used to specify the GPS PPS signal offset (default: 0.0).") ?>
                         </div>
                     </tr>
@@ -399,7 +399,7 @@ SureGPS =    #Sure Electronics SKG16B
                       <td><a id="help_for_fudge2" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext('Fudge time 2 (seconds)');?></td>
                       <td>
                         <input name="fudge2" type="text" id="gpsfudge2" min="-1" max="1" size="20" value="<?=$pconfig['fudge2'];?>" />
-                        <div class="hidden" for="help_for_fudge2">
+                        <div class="hidden" data-for="help_for_fudge2">
                           <?= gettext("Fudge time 2 is used to specify the GPS time offset (default: 0.0).") ?>
                         </div>
                       </td>
@@ -408,7 +408,7 @@ SureGPS =    #Sure Electronics SKG16B
                       <td><a id="help_for_stratum" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext('Stratum') ?></td>
                       <td>
                         <input name="stratum" type="text" id="gpsstratum"  value="<?=$pconfig['stratum'];?>" />
-                        <div class="hidden" for="help_for_stratum">
+                        <div class="hidden" data-for="help_for_stratum">
                           <?=gettext("(0-16)");?><br />
                           <?=gettext("This may be used to change the GPS Clock stratum (default: 0). This may be useful if, for some reason, you want ntpd to prefer a different clock"); ?>
                         </div>
@@ -476,8 +476,7 @@ SureGPS =    #Sure Electronics SKG16B
                               <input name="subsec" type="checkbox" id="gpssubsec"<?=!empty($pconfig['subsec']) ? " checked=\"checked\"" : ""; ?> />
                             </td>
                             <td>
-                              <?= gettext("Log the sub-second fraction of the received time stamp (default: Not logged).") ?><br />
-                              <?= gettext("Enabling this will rapidly fill the log, but is useful for tuning Fudge time 2.") ?>
+                              <?= gettext("Log the sub-second fraction of the received time stamp (default: Not logged).") ?>
                             </td>
                           </tr>
                         </table>
@@ -487,7 +486,7 @@ SureGPS =    #Sure Electronics SKG16B
                       <td><a id="help_for_refid" href="#" class="showhelp"><i class="fa fa-info-circle"></i></a> <?=gettext('Clock ID') ?></td>
                       <td>
                         <input name="refid" type="text" id="gpsrefid" value="<?=$pconfig['refid'];?>" />
-                        <div class="hidden" for="help_for_refid">
+                        <div class="hidden" data-for="help_for_refid">
                           <?=gettext("(1 to 4 characters)");?><br />
                           <?=gettext("This may be used to change the GPS Clock ID (default: GPS).") ?>
                         </div>
@@ -497,22 +496,32 @@ SureGPS =    #Sure Electronics SKG16B
                       <td><i class="fa fa-info-circle text-muted"></i> <?=gettext('GPS Initialization') ?></td>
                       <td>
                         <div >
-                          <input type="button" id="showgpsinitbox" value="<?=gettext("Advanced");?>" /> - <?=gettext("Show GPS Initialization commands");?>
+                          <input class="btn btn-xs btn-default" type="button" id="showgpsinitbox" value="<?= html_safe(gettext('Advanced')) ?>" /> - <?=gettext("Show GPS Initialization commands");?>
                         </div>
                         <div id="showgpsinit" style="display:none">
                           <textarea name="initcmd" class="formpre" id="gpsinitcmd" cols="65" rows="7"><?=base64_decode($pconfig['initcmd']);?></textarea><br />
-                          <?=gettext("Note: Commands entered here will be sent to the GPS during initialization. Please read and understand your GPS documentation before making any changes here.");?><br /><br />
-                          <strong><?=gettext("NMEA checksum calculator");?>:</strong>
-                          <br />
-                          <?=gettext('Enter the text between "$" and "*" of a NMEA command string:');?><br /> $<input name="nmeastring" type="text" id="nmeastring" size="30" value="" />*<span id="nmeachecksum"><?=gettext("checksum");?></span>&nbsp;&nbsp;
-                          <input type="button" id="calcnmeachk" value="<?=gettext("Calculate NMEA checksum");?>" />
+                          <?=gettext("Note: Commands entered here will be sent to the GPS during initialization. ".
+                                     "Please read and understand your GPS documentation before making any changes here.");?><br /><br />
+                          <strong><?=gettext("NMEA checksum calculator");?></strong><br /><br />
+                          <?=gettext('Enter the text between "$" and "*" of a NMEA command string.');?><br /><br />
+                          <div class="row" style="max-width: 348px">
+                            <div class="col-xs-12">
+                              <div class="input-group">
+                                <input name="nmeastring" type="text" id="nmeastring" />
+                                <span class="input-group-btn">
+                                  <label class="btn btn-primary" id="calcnmeachk"><?= gettext('Calculate') ?></label>
+                                </span>
+                              </div>
+                            </div>
+                          </div><br />
+                          <?= gettext("Checksum:") ?> <span id="nmeachecksum"><?=gettext("Please click the \"Calculate\" to get a result.");?></span>
                         </div>
                       </td>
                     </tr>
                     <tr>
                       <td>&nbsp;</td>
                       <td>
-                      <input name="Submit" type="submit" class="btn btn-primary" value="<?=gettext("Save");?>" />
+                      <input name="Submit" type="submit" class="btn btn-primary" value="<?=html_safe(gettext('Save'));?>" />
                       </td>
                     </tr>
                   </tbody>

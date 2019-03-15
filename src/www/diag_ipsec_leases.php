@@ -32,7 +32,7 @@ require_once("plugins.inc.d/ipsec.inc");
 require_once("services.inc");
 require_once("interfaces.inc");
 
-$service_hook = 'ipsec';
+$service_hook = 'strongswan';
 
 include("head.inc");
 $ipsec_leases = json_decode(configd_run("ipsec list leases"), true);
@@ -79,7 +79,7 @@ $ipsec_leases = json_decode(configd_run("ipsec list leases"), true);
                       <td><?= htmlspecialchars($lease['user']) ?></td>
                       <td><?= htmlspecialchars($lease['address']) ?></td>
                       <td>
-                        <span class='glyphicon glyphicon-transfer text-<?= $lease['status'] == 'online' ?  "success" : "danger" ?>'></span>
+                        <i class="fa fa-exchange text-<?= $lease['status'] == 'online' ? 'success' : 'danger' ?>"></i>
                         (<?= htmlspecialchars($lease['status']) ?>)
                       </td>
                       <td></td>

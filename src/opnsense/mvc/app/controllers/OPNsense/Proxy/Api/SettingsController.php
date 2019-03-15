@@ -2,6 +2,7 @@
 
 /**
  *    Copyright (C) 2015 Jos Schellevis <jos@opnsense.org>
+ *    Copyright (C) 2017 Fabian Franz
  *    All rights reserved.
  *
  *    Redistribution and use in source and binary forms, with or without
@@ -39,8 +40,8 @@ use \OPNsense\Base\UIModelGrid;
  */
 class SettingsController extends ApiMutableModelControllerBase
 {
-    static protected $internalModelName = 'proxy';
-    static protected $internalModelClass = '\OPNsense\Proxy\Proxy';
+    protected static $internalModelName = 'proxy';
+    protected static $internalModelClass = '\OPNsense\Proxy\Proxy';
 
     /**
      *
@@ -66,21 +67,8 @@ class SettingsController extends ApiMutableModelControllerBase
      */
     public function getRemoteBlacklistAction($uuid = null)
     {
-        $mdlProxy = $this->getModel();
-        if ($uuid != null) {
-            $node = $mdlProxy->getNodeByReference('forward.acl.remoteACLs.blacklists.blacklist.' . $uuid);
-            if ($node != null) {
-                // return node
-                return array("blacklist" => $node->getNodes());
-            }
-        } else {
-            // generate new node, but don't save to disc
-            $node = $mdlProxy->forward->acl->remoteACLs->blacklists->blacklist->add();
-            return array("blacklist" => $node->getNodes());
-        }
-        return array();
+        return $this->getBase("blacklist", "forward.acl.remoteACLs.blacklists.blacklist", $uuid);
     }
-
 
     /**
      * update remote blacklist item
@@ -90,32 +78,7 @@ class SettingsController extends ApiMutableModelControllerBase
      */
     public function setRemoteBlacklistAction($uuid)
     {
-        if ($this->request->isPost() && $this->request->hasPost("blacklist")) {
-            $mdlProxy = $this->getModel();
-            if ($uuid != null) {
-                $node = $mdlProxy->getNodeByReference('forward.acl.remoteACLs.blacklists.blacklist.' . $uuid);
-                if ($node != null) {
-                    $result = array("result" => "failed", "validations" => array());
-                    $blacklistInfo = $this->request->getPost("blacklist");
-
-                    $node->setNodes($blacklistInfo);
-                    $valMsgs = $mdlProxy->performValidation();
-                    foreach ($valMsgs as $field => $msg) {
-                        $fieldnm = str_replace($node->__reference, "blacklist", $msg->getField());
-                        $result["validations"][$fieldnm] = $msg->getMessage();
-                    }
-
-                    if (count($result['validations']) == 0) {
-                        // save config if validated correctly
-                        $mdlProxy->serializeToConfig();
-                        Config::getInstance()->save();
-                        $result = array("result" => "saved");
-                    }
-                    return $result;
-                }
-            }
-        }
-        return array("result" => "failed");
+        return $this->setBase('blacklist', 'forward.acl.remoteACLs.blacklists.blacklist', $uuid);
     }
 
     /**
@@ -124,28 +87,7 @@ class SettingsController extends ApiMutableModelControllerBase
      */
     public function addRemoteBlacklistAction()
     {
-        $result = array("result" => "failed");
-        if ($this->request->isPost() && $this->request->hasPost("blacklist")) {
-            $result = array("result" => "failed", "validations" => array());
-            $mdlProxy = $this->getModel();
-            $node = $mdlProxy->forward->acl->remoteACLs->blacklists->blacklist->Add();
-            $node->setNodes($this->request->getPost("blacklist"));
-            $valMsgs = $mdlProxy->performValidation();
-
-            foreach ($valMsgs as $field => $msg) {
-                $fieldnm = str_replace($node->__reference, "blacklist", $msg->getField());
-                $result["validations"][$fieldnm] = $msg->getMessage();
-            }
-
-            if (count($result['validations']) == 0) {
-                // save config if validated correctly
-                $mdlProxy->serializeToConfig();
-                Config::getInstance()->save();
-                $result = array("result" => "saved");
-            }
-            return $result;
-        }
-        return $result;
+        return $this->addBase('blacklist', 'forward.acl.remoteACLs.blacklists.blacklist');
     }
 
     /**
@@ -155,23 +97,7 @@ class SettingsController extends ApiMutableModelControllerBase
      */
     public function delRemoteBlacklistAction($uuid)
     {
-
-        $result = array("result" => "failed");
-
-        if ($this->request->isPost()) {
-            $mdlProxy = $this->getModel();
-            if ($uuid != null) {
-                if ($mdlProxy->forward->acl->remoteACLs->blacklists->blacklist->del($uuid)) {
-                    // if item is removed, serialize to config and save
-                    $mdlProxy->serializeToConfig();
-                    Config::getInstance()->save();
-                    $result['result'] = 'deleted';
-                } else {
-                    $result['result'] = 'not found';
-                }
-            }
-        }
-        return $result;
+        return $this->delBase('forward.acl.remoteACLs.blacklists.blacklist', $uuid);
     }
 
     /**
@@ -181,28 +107,7 @@ class SettingsController extends ApiMutableModelControllerBase
      */
     public function toggleRemoteBlacklistAction($uuid)
     {
-
-        $result = array("result" => "failed");
-
-        if ($this->request->isPost()) {
-            $mdlProxy = $this->getModel();
-            if ($uuid != null) {
-                $node = $mdlProxy->getNodeByReference('forward.acl.remoteACLs.blacklists.blacklist.' . $uuid);
-                if ($node != null) {
-                    if ($node->enabled->__toString() == "1") {
-                        $result['result'] = "Disabled";
-                        $node->enabled = "0";
-                    } else {
-                        $result['result'] = "Enabled";
-                        $node->enabled = "1";
-                    }
-                    // if item has toggled, serialize to config and save
-                    $mdlProxy->serializeToConfig();
-                    Config::getInstance()->save();
-                }
-            }
-        }
-        return $result;
+        return $this->toggleBase('forward.acl.remoteACLs.blacklists.blacklist', $uuid);
     }
 
     /**
@@ -239,5 +144,191 @@ class SettingsController extends ApiMutableModelControllerBase
         }
 
         return $result;
+    }
+
+    /**
+     *
+     * search PAC Rule
+     * @return array
+     */
+    public function searchPACRuleAction()
+    {
+        $this->sessionClose();
+        return $this->searchBase('pac.rule', array("enabled", "description", "proxies", "matches"), "description");
+    }
+
+    /**
+     * retrieve PAC Rule or return defaults
+     * @param $uuid item unique id
+     * @return array
+     */
+    public function getPACRuleAction($uuid = null)
+    {
+        $this->sessionClose();
+        return array("pac" => $this->getBase('rule', 'pac.rule', $uuid));
+    }
+
+    /**
+     * add new PAC Rule and set with attributes from post
+     * @return array
+     */
+    public function addPACRuleAction()
+    {
+        $this->pac_set_helper();
+        return $this->addBase('rule', 'pac.rule');
+    }
+
+    /**
+     * update PAC Rule
+     * @param string $uuid
+     * @return array result status
+     * @throws \Phalcon\Validation\Exception
+     */
+    public function setPACRuleAction($uuid)
+    {
+        $this->pac_set_helper();
+        return $this->setBase('rule', 'pac.rule', $uuid);
+    }
+
+    /**
+     * toggle PAC Rule by uuid (enable/disable)
+     * @param $uuid item unique id
+     * @return array status
+     */
+    public function togglePACRuleAction($uuid)
+    {
+        return $this->toggleBase('pac.rule', $uuid);
+    }
+
+    /**
+     * delete PAC Rule by uuid
+     * @param $uuid item unique id
+     * @return array status
+     */
+    public function delPACRuleAction($uuid)
+    {
+        return $this->delBase('pac.rule', $uuid);
+    }
+
+    /**
+     *
+     * search PAC Proxy
+     * @return array
+     */
+    public function searchPACProxyAction()
+    {
+        $this->sessionClose();
+        return $this->searchBase('pac.proxy', array("enabled","proxy_type", "name", "url", "description"), "description");
+    }
+
+    /**
+     * retrieve PAC Proxy or return defaults
+     * @param $uuid item unique id
+     * @return array
+     */
+    public function getPACProxyAction($uuid = null)
+    {
+        $this->sessionClose();
+        return array("pac" => $this->getBase('proxy', 'pac.proxy', $uuid));
+    }
+
+    /**
+     * add new PAC Proxy and set with attributes from post
+     * @return array
+     */
+    public function addPACProxyAction()
+    {
+        $this->pac_set_helper();
+        return $this->addBase('proxy', 'pac.proxy');
+    }
+
+    /**
+     * update PAC Proxy
+     * @param string $uuid
+     * @return array result status
+     * @throws \Phalcon\Validation\Exception
+     */
+    public function setPACProxyAction($uuid)
+    {
+        $this->pac_set_helper();
+        return $this->setBase('proxy', 'pac.proxy', $uuid);
+    }
+
+    /**
+     * delete PAC Proxy by uuid
+     * @param $uuid item unique id
+     * @return array status
+     */
+    public function delPACProxyAction($uuid)
+    {
+        return $this->delBase('pac.proxy', $uuid);
+    }
+
+    /**
+     * search PAC Match
+     * @return array
+     */
+    public function searchPACMatchAction()
+    {
+        $this->sessionClose();
+        return $this->searchBase('pac.match', array("enabled", "name", "description", "negate", "match_type"), "name");
+    }
+
+    /**
+     * retrieve PAC Match or return defaults
+     * @param $uuid item unique id
+     * @return array
+     */
+    public function getPACMatchAction($uuid = null)
+    {
+        $this->sessionClose();
+        return array("pac" => $this->getBase('match', 'pac.match', $uuid));
+    }
+
+    /**
+     * add new PAC Proxy and set with attributes from post
+     * @return array
+     */
+    public function addPACMatchAction()
+    {
+        $this->pac_set_helper();
+        return $this->addBase('match', 'pac.match');
+    }
+
+    /**
+     * update PAC Rule
+     * @param string $uuid
+     * @return array result status
+     * @throws \Phalcon\Validation\Exception
+     */
+    public function setPACMatchAction($uuid)
+    {
+        $this->pac_set_helper();
+        return $this->setBase('match', 'pac.match', $uuid);
+    }
+
+    /**
+     * delete PAC Match by uuid
+     * @param $uuid item unique id
+     * @return array status
+     */
+    public function delPACMatchAction($uuid)
+    {
+        return $this->delBase('pac.match', $uuid);
+    }
+
+    /**
+     * flatten post data structure
+     */
+    private function pac_set_helper()
+    {
+        if ($this->request->isPost() && $this->request->hasPost("pac")) {
+            $pac_data = $this->request->getPost('pac');
+            if (is_array($pac_data)) {
+                foreach ($pac_data as $key => $value) {
+                    $_POST[$key] = $value;
+                }
+            }
+        }
     }
 }

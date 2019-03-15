@@ -1,30 +1,30 @@
 <?php
 
 /*
-        Copyright (C) 2014 Deciso B.V.
-        Copyright (C) 2009 Scott Ullrich <sullrich@gmail.com>
-
-        Redistribution and use in source and binary forms, with or without
-        modification, are permitted provided that the following conditions are met:
-
-        1. Redistributions of source code must retain the above copyright notice,
-           this list of conditions and the following disclaimer.
-
-        2. Redistributions in binary form must reproduce the above copyright
-           notice, this list of conditions and the following disclaimer in the
-           documentation and/or other materials provided with the distribution.
-
-        THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
-        INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
-        AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
-        AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
-        OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-        SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-        INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-        CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-        ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-        POSSIBILITY OF SUCH DAMAGE.
-*/
+ * Copyright (C) 2014 Deciso B.V.
+ * Copyright (C) 2009 Scott Ullrich <sullrich@gmail.com>
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
+ * AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
+ * OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ */
 
 require_once("guiconfig.inc");
 
@@ -76,7 +76,7 @@ if ($_POST) {
       </tr>
       <tr>
         <td>
-          <input id="submita" name="submita" type="submit" class="btn btn-primary formbtn" value="<?= gettext('Upload') ?>" />
+          <input id="submit_pictfile_widget" name="submit_pictfile_widget" type="submit" class="btn btn-primary formbtn" value="<?= html_safe(gettext('Upload')) ?>" />
         </td>
       </tr>
     </table>
@@ -88,13 +88,13 @@ if ($_POST) {
 if ($config['widgets']['picturewidget_filename'] != "") :?>
   <div id="picture-widgets" style="padding: 5px">
     <a href='/widgets/widgets/picture.widget.php?getpic=true' target='_blank'>
-      <img border="0" width="100%" height="100%" src="/widgets/widgets/picture.widget.php?getpic=true" alt="picture" />
+      <img style="border:0px solid; width:100%; height:100%" src="/widgets/widgets/picture.widget.php?getpic=true" alt="picture" />
     </a>
   </div>
 <?php
 endif ?>
 <!-- needed to show the settings widget icon -->
-<script type="text/javascript">
+<script>
 //<![CDATA[
   $("#picture-configure").removeClass("disabled");
 //]]>

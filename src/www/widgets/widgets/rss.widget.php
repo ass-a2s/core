@@ -130,7 +130,7 @@ if (!empty($config['widgets']['rsswidgettextlength']) && is_numeric($config['wid
       </tr>
       <tr>
         <td colspan="2">
-          <input id="submitc" name="submitc" type="submit" class="btn btn-primary formbtn" value="<?= gettext('Save') ?>" />
+          <input id="submitc" name="submitc" type="submit" class="btn btn-primary formbtn" value="<?= html_safe(gettext('Save')) ?>" />
         </td>
       </tr>
     </table>
@@ -166,7 +166,7 @@ if (!empty($config['widgets']['rsswidgettextlength']) && is_numeric($config['wid
 </div>
 
 <!-- needed to display the widget settings menu -->
-<script type="text/javascript">
+<script>
 //<![CDATA[
   $("#rss-configure").removeClass("disabled");
 //]]>

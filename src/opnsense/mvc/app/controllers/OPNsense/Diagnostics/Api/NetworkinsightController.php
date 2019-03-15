@@ -144,7 +144,6 @@ class NetworkinsightController extends ApiControllerBase
         $measure = $filter->sanitize($measure, "string");
         $max_hits = $filter->sanitize($max_hits, "int");
 
-        $result = array();
         if ($this->request->isGet()) {
             if ($this->request->get("filter_field") != null && $this->request->get("filter_value") != null) {
                 $filter_fields = explode(',', $this->request->get("filter_field"));
@@ -261,7 +260,7 @@ class NetworkinsightController extends ApiControllerBase
     ) {
         $this->response->setRawHeader("Content-Type: application/octet-stream");
         $this->response->setRawHeader("Content-Disposition: attachment; filename=".$provider.".csv");
-        if ($this->request->isGet()) {
+        if ($this->request->isGet() && $provider != null && $resolution != null) {
             $backend = new Backend();
             $configd_cmd = "netflow aggregate export {$provider} {$from_date} {$to_date} {$resolution}";
             $response = $backend->configdRun($configd_cmd);

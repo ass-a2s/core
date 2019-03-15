@@ -34,13 +34,13 @@
 </style>
 
 <!-- nvd3 -->
-<link rel="stylesheet" href="/ui/css/nv.d3.css">
+<link rel="stylesheet" type="text/css" href="{{ cache_safe(theme_file_or_default('/css/nv.d3.css', ui_theme|default('opnsense'))) }}" />
 
 <!-- d3 -->
-<script type="text/javascript" src="/ui/js/d3.min.js"></script>
+<script src="{{ cache_safe('/ui/js/d3.min.js') }}"></script>
 
 <!-- nvd3 -->
-<script type="text/javascript" src="/ui/js/nv.d3.min.js"></script>
+<script src="{{ cache_safe('/ui/js/nv.d3.min.js') }}"></script>
 
 <!-- System Health -->
 <style>
@@ -52,7 +52,7 @@
 </style>
 
 
-<script type="application/javascript">
+<script>
     var chart;
     var data = [];
     var fetching_data = true;
@@ -109,10 +109,9 @@
         chart.dispatch.on('brush.brushend', function (b) {
             window.onresize = null; // clear any pending resize events
             if (fetching_data == false) {
+                let inverse = false;
                 if ($('input:radio[name=inverse]:checked').val() == 1) {
                     inverse = true;
-                } else {
-                    inverse = false;
                 }
 
                 var detail = $('input:radio[name=detail]:checked').val();
@@ -176,7 +175,7 @@
     }
 
     function getRRDlist() {
-        ajaxGet(url = "/api/diagnostics/systemhealth/getRRDlist/", sendData = {}, callback = function (data, status) {
+        ajaxGet("/api/diagnostics/systemhealth/getRRDlist/", {}, function (data, status) {
             if (status == "success") {
                 var category;
                 var tabs="";
@@ -195,7 +194,7 @@
                     rrd_name = subitem + '-' + category;
 
                     // create dropdown menu
-                    tabs+='<a data-toggle="dropdown" href="#" class="dropdown-toggle pull-right visible-lg-inline-block visible-md-inline-block visible-xs-inline-block visible-sm-inline-block" role="button" style="border-left: 1px dashed lightgray;">';
+                    tabs+='<a data-toggle="dropdown" href="#" class="dropdown-toggle pull-right visible-lg-inline-block visible-md-inline-block visible-xs-inline-block visible-sm-inline-block" role="button">';
                     tabs+='<b><span class="caret"></span></b>';
                     tabs+='</a>';
                     tabs+='<a data-toggle="tab" onclick="$(\'#'+rrd_name+'\').click();" class="visible-lg-inline-block visible-md-inline-block visible-xs-inline-block visible-sm-inline-block" style="border-right:0px;"><b>'+category[0].toUpperCase() + category.slice(1)+'</b></a>';
@@ -207,12 +206,12 @@
                         subitem=data["data"][category][count];
                         rrd_name = subitem + '-' + category;
 
-                        if (subitem==active_subitem) {
-                            tabs += '<li class="active"><a data-toggle="tab" class="rrd-item" onclick="getdata(\''+rrd_name+'\',0,0,120,0);" id="'+rrd_name+'"><i class="fa fa-check-square"></i> ' + subitem[0].toUpperCase() + subitem.slice(1) + '</a></li>';
+                        if (subitem==active_subitem && category==active_category) {
+                            tabs += '<li class="active"><a data-toggle="tab" class="rrd-item" onclick="getdata(\''+rrd_name+'\',0,0,120,0);" id="'+rrd_name+'">' + subitem[0].toUpperCase() + subitem.slice(1) + '</a></li>';
                             rrd=rrd_name;
                             getdata(rrd_name,0,0,120,false,0); // load initial data
                         } else {
-                            tabs += '<li><a data-toggle="tab" class="rrd-item"  onclick="getdata(\''+rrd_name+'\',0,0,120,0);" id="'+rrd_name+'"><i class="fa fa-check-square"></i> ' + subitem[0].toUpperCase() + subitem.slice(1) + '</a></li>';
+                            tabs += '<li><a data-toggle="tab" class="rrd-item"  onclick="getdata(\''+rrd_name+'\',0,0,120,0);" id="'+rrd_name+'">' + subitem[0].toUpperCase() + subitem.slice(1) + '</a></li>';
                         }
                     }
                     tabs+='</ul>';
@@ -221,13 +220,13 @@
                 $('#maintabs').html(tabs);
                 $('#tab_1').toggleClass('active');
                 // map interface descriptions
-                ajaxGet(url = "/api/diagnostics/systemhealth/getInterfaces" , sendData = {}, callback = function (data, status) {
+                ajaxGet("/api/diagnostics/systemhealth/getInterfaces" , {}, function (data, status) {
                     $(".rrd-item").each(function(){
                         var rrd_item = $(this);
                         var rrd_item_name = $(this).attr('id').split('-')[0].toLowerCase();
                         $.map(data, function(value, key){
                             if (key.toLowerCase() == rrd_item_name) {
-                                rrd_item.html('<i class="fa fa-check-square"></i> ' + value['descr']);
+                                rrd_item.html(value['descr']);
                             }
 
                         });
@@ -272,10 +271,9 @@
 
         }
 
+        let inverse = false;
         if ($('input:radio[name=inverse]:checked').val() == 1) {
             inverse = true;
-        } else {
-            inverse = false;
         }
         if (detail === undefined) {
             detail = 0;
@@ -295,7 +293,7 @@
         csvData = [];
 
         // array used for min/max/average table when shown
-        min_max_average = {};
+        let min_max_average = {};
 
         // info bar - hide averages info bar while refreshing data
         $('#averages').hide();
@@ -303,7 +301,7 @@
         // info bar - show loading info bar while refreshing data
         $('#loading').show();
         // API call to request data
-        ajaxGet(url = "/api/diagnostics/systemhealth/getSystemHealth/" + rrd_name + "/" + String(from) + "/" + String(to) + "/" + String(maxitems) + "/" + String(inverse) + "/" + String(detail), sendData = {}, callback = function (data, status) {
+        ajaxGet("/api/diagnostics/systemhealth/getSystemHealth/" + rrd_name + "/" + String(from) + "/" + String(to) + "/" + String(maxitems) + "/" + String(inverse) + "/" + String(detail), {}, function (data, status) {
             if (status == "success") {
                 var stepsize = data["d3"]["stepSize"];
                 var scale = "{{ lang._('seconds') }}";
@@ -339,8 +337,9 @@
 
                 // Add zoomlevel buttons/options
                 if ($('input:radio[name=detail]:checked').val() == undefined || zoom_buttons==="") {
-                    for (setcount = 0; setcount < data["sets"].length; ++setcount) {
-                        recordedtime = data["sets"][setcount]["recorded_time"];
+                    for (let setcount = 0; setcount < data["sets"].length; ++setcount) {
+                        const recordedtime = data["sets"][setcount]["recorded_time"];
+                        let detail_text = '';
                         // Find out what text matches best
                         if (recordedtime >= 31536000) {
                             detail_text = Math.floor(recordedtime / 31536000).toString() + " {{ lang._('Year(s)') }}";
@@ -367,7 +366,7 @@
                 $('#stepsize').text(stepsize + " " + scale);
 
                 // Check for enabled or disabled stream, to make sure that same set stays selected after update
-                for (index = 0; index < disabled.length; ++index) {
+                for (let index = 0; index < disabled.length; ++index) {
                     window.resize = null;
                     data["d3"]["data"][index]["disabled"] = disabled[index]; // disable stream if it was disabled before updating dataset
                 }
@@ -397,7 +396,7 @@
 
                     var counter = 1; // used for row count
 
-                    for (index = 0; index < data["d3"]["data"].length; ++index) {
+                    for (let index = 0; index < data["d3"]["data"].length; ++index) {
                         rowcounter = 0;
                         min = 0;
                         max = 0;
@@ -578,9 +577,7 @@
 
 </script>
 
-
-
-<div class="content-box tab-content">
+<div class="tab-content">
     <div id="tab_1" class="tab-pane fade in">
         <div class="panel panel-primary">
             <div class="panel-heading panel-heading-sm">
@@ -596,7 +593,6 @@
                         <div class="col-md-12"></div>
                         <div class="col-md-4">
                             <b>{{ lang._('Zoom level') }}:</b>
-
                             <form onChange="UpdateOptions()">
                                 <div class="btn-group btn-group-xs" data-toggle="buttons" id="zoom">
                                     <!-- The zoom buttons are generated based upon the current dataset -->
@@ -605,7 +601,6 @@
                         </div>
                         <div class="col-md-2">
                             <b>{{ lang._('Inverse') }}:</b>
-
                             <form onChange="UpdateOptions()">
                                 <div class="btn-group btn-group-xs" data-toggle="buttons">
                                     <label class="btn btn-default active">
@@ -620,7 +615,6 @@
                         </div>
                         <div class="col-md-4">
                             <b>{{ lang._('Resolution') }}:</b>
-
                             <form onChange="UpdateOptions()">
                                 <div class="btn-group btn-group-xs" data-toggle="buttons">
                                     <label class="btn btn-default active">
@@ -640,7 +634,6 @@
                         </div>
                         <div class="col-md-2">
                             <b>{{ lang._('Show Tables') }}:</b>
-
                             <form onChange="UpdateOptions()">
                                 <div class="btn-group btn-group-xs" data-toggle="buttons">
                                     <label class="btn btn-default active">
@@ -656,10 +649,7 @@
                     </div>
                 </div>
             </div>
-
         </div>
-
-        <!--<div id="stepsize"></div>-->
 
         <!-- place holder for the chart itself -->
         <div class="panel panel-default">
@@ -706,8 +696,6 @@
                 </div>
             </div>
         </div>
-
-
     </div>
 
     <div id="chart_details_table" class="col-md-12" style="display: none;">
@@ -715,7 +703,6 @@
             <div class="panel-heading">
                 <h3 class="panel-title">
                   {{ lang._('Current View - Details') }}
-
                 </h3>
             </div>
             <div class="panel-body">
@@ -729,20 +716,17 @@
                                 lang._('Timestamp') }}
                             </label>
                             <label class="btn btn-xs btn-default">
-                                <input type="radio" id="time1" name="toggle_time" value="1"/> {{ lang._('Full Date &
-                                Time') }}
+                                <input type="radio" id="time1" name="toggle_time" value="1"/> {{ lang._('Full Date & Time') }}
                             </label>
                         </div>
                     </form>
-                    <div class="btn btn-xs btn-primary inline"
-                         onclick='downloadCSV({ filename: rrd+".csv" });'><i
-                            class="glyphicon glyphicon-download-alt"></i>{{ lang._('Download as CSV') }}
+                    <div class="btn btn-xs btn-primary inline" onclick='downloadCSV({ filename: rrd+".csv" });'>
+                        <i class="fa fa-download"></i> {{ lang._('Download as CSV') }}
                     </div>
                 </div>
 
                 <div class="table-responsive">
                     <table class="table table-condensed table-hover table-striped">
-
                         <thead>
                         <tr id="table_view_heading" class="active">
                             <!-- Dynamic data -->
@@ -754,8 +738,6 @@
                     </table>
                 </div>
             </div>
-
         </div>
     </div>
-
 </div>

@@ -1,7 +1,7 @@
 <?php
 
 /*
- * Copyright (C) 2016-2017 Franco Fichtner <franco@opnsense.org>
+ * Copyright (C) 2016-2019 Franco Fichtner <franco@opnsense.org>
  * Copyright (C) 2004-2007 Scott Ullrich <sullrich@gmail.com>
  * Copyright (C) 2003-2004 Manuel Kasper <mk@neon1.net>
  * All rights reserved.
@@ -33,16 +33,44 @@ function webgui_configure()
     return array(
         'earlybootup' => array('webgui_configure_do'),
         'local' => array('webgui_configure_do'),
+        'newwanip' => array('webgui_configure_do:2'),
     );
 }
 
-function webgui_configure_do($verbose = false)
+function webgui_configure_do($verbose = false, $interface = '')
 {
     global $config;
+
+    $interfaces = array();
+    if (!empty($config['system']['webgui']['interfaces'])) {
+        $interfaces = explode(',', $config['system']['webgui']['interfaces']);
+        $interfaces[] = 'lo0';
+    }
+
+    @mkdir('/var/lib/php/sessions', 0750, true);
+    /* do not trust PHP with mkdir permission on existing directory */
+    @chmod('/var/lib/php/sessions', 0750);
+    @chown('/var/lib/php/sessions', 'root');
+    @chgrp('/var/lib/php/sessions', 'wheel');
+
+    if (!empty($interface) && !in_array($interface, $interfaces)) {
+        return;
+    }
 
     if ($verbose) {
         echo 'Starting web GUI...';
         flush();
+    }
+
+    $listeners = count($interfaces) ? array() : array('0.0.0.0', '::');
+
+    foreach (interfaces_addresses($interfaces) as $tmpaddr => $info) {
+        if ($info['scope']) {
+            /* link-local does not seem to be supported */
+            continue;
+        }
+
+        $listeners[] = $tmpaddr;
     }
 
     chdir('/usr/local/www');
@@ -54,13 +82,13 @@ function webgui_configure_do($verbose = false)
     $ca = '';
 
     /* non-standard port? */
-    if (isset($config['system']['webgui']['port']) && $config['system']['webgui']['port'] <> "") {
+    if (isset($config['system']['webgui']['port']) && $config['system']['webgui']['port'] != '') {
         $portarg = "{$config['system']['webgui']['port']}";
     }
 
     if ($config['system']['webgui']['protocol'] == "https") {
         $cert =& lookup_cert($config['system']['webgui']['ssl-certref']);
-        if(!is_array($cert) && !$cert['crt'] && !$cert['prv']) {
+        if (!is_array($cert) && !$cert['crt'] && !$cert['prv']) {
             $a_ca = &config_read_array('ca');
             $a_cert = &config_read_array('cert');
             log_error("Creating SSL certificate for this host");
@@ -94,34 +122,43 @@ function webgui_configure_do($verbose = false)
         $ca = ca_chain($cert);
     }
 
-    if (webgui_generate_config($portarg, $crt, $key, $ca)) {
-        /* only stop the frontend when the generation was successful */
-        killbypid('/var/run/lighty-webConfigurator.pid', 'TERM', true);
-
-        /* flush Phalcon volt templates */
-        foreach (glob('/usr/local/opnsense/mvc/app/cache/*.php') as $filename) {
-            unlink($filename);
+    if (!webgui_generate_config($portarg, $crt, $key, $ca, $listeners)) {
+        if ($verbose) {
+            echo "deferred.\n";
         }
-
-        /* regenerate the php.ini files in case the setup has changed */
-        configd_run('template reload OPNsense/WebGui');
-
-        /*
-         * Force reloading all php-cgi children to
-         * avoid hiccups with moved include files.
-         */
-        killbyname('php-cgi', 'HUP');
-
-        /* start lighthttpd */
-        mwexec('/usr/local/sbin/lighttpd -f /var/etc/lighty-webConfigurator.conf');
+        return;
     }
 
-    if ($verbose) {
-        echo "done.\n";
+    /* only stop the frontend when the generation was successful */
+    killbypid('/var/run/lighty-webConfigurator.pid', 'TERM', true);
+
+    /* flush Phalcon volt templates */
+    foreach (glob('/usr/local/opnsense/mvc/app/cache/*.php') as $filename) {
+        unlink($filename);
+    }
+
+    /* regenerate the php.ini files in case the setup has changed */
+    configd_run('template reload OPNsense/WebGui');
+
+    /*
+     * Force reloading all php-cgi children to
+     * avoid hiccups with moved include files.
+     */
+    killbyname('php-cgi', 'HUP');
+
+    /* start lighthttpd */
+    if (!count($listeners) || mwexec('/usr/local/sbin/lighttpd -f /var/etc/lighty-webConfigurator.conf')) {
+        if ($verbose) {
+            echo "failed.\n";
+        }
+    } else {
+        if ($verbose) {
+            echo "done.\n";
+        }
     }
 }
 
-function webgui_generate_config($port, $cert, $key, $ca)
+function webgui_generate_config($port, $cert, $key, $ca, $listeners)
 {
     global $config;
 
@@ -134,8 +171,8 @@ function webgui_generate_config($port, $cert, $key, $ca)
 # Phalcon ui and api routing
 alias.url += ( "/ui/" => "/usr/local/opnsense/www/" )
 alias.url += ( "/api/"  => "/usr/local/opnsense/www/" )
-url.rewrite-if-not-file = ( "^/ui/([^\?]+)(\?(.*))?" => "/ui/index.php?_url=/$1&$3" ,
-                            "^/api/([^\?]+)(\?(.*))?" => "/api/api.php?_url=/$1&$3"
+url.rewrite-if-not-file = ( "^/ui/([^\?]+)(\?(.*))?" => "/ui/index.php?$3" ,
+                            "^/api/([^\?]+)(\?(.*))?" => "/api/api.php?$3"
 )
 
 EOD;
@@ -145,11 +182,17 @@ EOD;
 
     $lighty_port = $port;
 
-    if(!isset($config['syslog']['nologlighttpd'])) {
+    $lighty_use_syslog = '';
+    if (!isset($config['syslog']['nologlighttpd'])) {
         $lighty_use_syslog = <<<EOD
-## where to send error-messages to
+## where to send error/access-messages to
+server.syslog-facility = "daemon"
 server.errorlog-use-syslog="enable"
+
 EOD;
+    }
+    if (!empty($config['system']['webgui']['httpaccesslog'])) {
+        $lighty_use_syslog .= 'accesslog.use-syslog="enable"' . "\n";
     }
 
     $fast_cgi_path = "/tmp/php-fastcgi.socket";
@@ -173,6 +216,9 @@ fastcgi.server = ( ".php" =>
 
 EOD;
 
+    $lighty_modules = !empty($config['system']['webgui']['httpaccesslog']) ? ', "mod_accesslog"' : "";
+
+
     $lighty_config = <<<EOD
 #
 # lighttpd configuration file
@@ -181,14 +227,13 @@ EOD;
 #
 ############ Options you really have to take care of ####################
 
-## FreeBSD!
 server.event-handler  = "freebsd-kqueue"
 server.network-backend  = "writev"
-#server.use-ipv6 = "enable"
 
 ## modules to load
-server.modules              =   ( "mod_access", "mod_expire", "mod_compress", "mod_redirect",
-  "mod_cgi", "mod_fastcgi","mod_alias", "mod_rewrite"
+server.modules              =   (
+  "mod_access", "mod_expire", "mod_compress", "mod_redirect", "mod_setenv",
+  "mod_cgi", "mod_fastcgi","mod_alias", "mod_rewrite", "mod_openssl" {$lighty_modules}
 )
 
 server.max-keep-alive-requests = 15
@@ -197,7 +242,7 @@ server.max-keep-alive-idle = 30
 ## a static document-root, for virtual-hosting take look at the
 ## server.virtual-* options
 server.document-root        = "/usr/local/www/"
-
+server.tag = "OPNsense"
 
 {$http_rewrite_rules}
 
@@ -212,6 +257,7 @@ server.indexfiles           = ( "index.php", "index.html",
 
 # mimetype mapping
 mimetype.assign             = (
+  "wpad.dat"      =>      "application/x-ns-proxy-autoconfig",
   ".pdf"          =>      "application/pdf",
   ".sig"          =>      "application/pgp-signature",
   ".spl"          =>      "application/futuresplash",
@@ -281,10 +327,8 @@ url.access-deny             = ( "~", ".inc" )
 
 EOD;
 
-    $lighty_config .= "server.bind  = \"0.0.0.0\"\n";
+    $lighty_config .= "server.bind  = \"{$listeners[0]}\"\n";
     $lighty_config .= "server.port  = {$lighty_port}\n";
-
-    $ssl_config = '';
 
     $cert = str_replace("\r", "", $cert);
     $key = str_replace("\r", "", $key);
@@ -294,7 +338,7 @@ EOD;
     $key = str_replace("\n\n", "\n", $key);
     $ca = str_replace("\n\n", "\n", $ca);
 
-    if($cert <> "" and $key <> "") {
+    if (!empty($cert) && !empty($key)) {
         $fd = fopen("/var/etc/{$cert_location}", "w");
         if (!$fd) {
             log_error('Error: cannot open cert.pem');
@@ -305,7 +349,7 @@ EOD;
         fwrite($fd, "\n");
         fwrite($fd, $key);
         fclose($fd);
-        if(!(empty($ca) || (strlen(trim($ca)) == 0))) {
+        if (!(empty($ca) || (strlen(trim($ca)) == 0))) {
             $fd = fopen("/var/etc/{$ca_location}", "w");
             if (!$fd) {
                 log_error('Error: cannot open ca.pem');
@@ -315,45 +359,66 @@ EOD;
             fwrite($fd, $ca);
             fclose($fd);
         }
-        $ssl_config = "\n";
-        $ssl_config .= "## ssl configuration\n";
-        $ssl_config .= "ssl.engine = \"enable\"\n";
-        $ssl_config .= "ssl.dh-file = \"/usr/local/etc/dh-parameters.4096\"\n";
-        $ssl_config .= "ssl.ec-curve = \"secp384r1\"\n";
-        $ssl_config .= "ssl.pemfile = \"/var/etc/{$cert_location}\"\n\n";
+
+        $lighty_config .= "\n## ssl configuration\n";
+        $lighty_config .= "ssl.engine = \"enable\"\n";
+        $lighty_config .= "ssl.disable-client-renegotiation = \"enable\"\n";
+        $lighty_config .= "ssl.dh-file = \"" . get_dh_parameters(4096) . "\"\n";
+        $lighty_config .= "ssl.ec-curve = \"secp384r1\"\n";
+        $lighty_config .= "ssl.pemfile = \"/var/etc/{$cert_location}\"\n";
+        if (!empty($ca)) {
+            $lighty_config .= "ssl.ca-file = \"/var/etc/{$ca_location}\"\n";
+        }
+        $lighty_config .= "setenv.add-environment = (\n";
+        $lighty_config .= "     \"HTTPS\" => \"on\"\n";
+        $lighty_config .= ")\n";
 
         // Harden SSL a bit for PCI conformance testing
-        $ssl_config .= "ssl.use-sslv2 = \"disable\"\n";
+        $lighty_config .= "ssl.use-sslv2 = \"disable\"\n";
+        $lighty_config .= "ssl.use-sslv3 = \"disable\"\n";
+        $lighty_config .= "ssl.honor-cipher-order = \"enable\"\n";
         if (empty($config['system']['webgui']['ssl-ciphers'])) {
-            $ssl_config .= 'ssl.cipher-list = "ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES256-GCM-SHA384:DHE-RSA-AES128-GCM-SHA256:DHE-DSS-AES128-GCM-SHA256:kEDH+AESGCM:ECDHE-RSA-AES128-SHA256:ECDHE-ECDSA-AES128-SHA256:ECDHE-RSA-AES128-SHA:ECDHE-ECDSA-AES128-SHA:ECDHE-RSA-AES256-SHA384:ECDHE-ECDSA-AES256-SHA384:ECDHE-RSA-AES256-SHA:ECDHE-ECDSA-AES256-SHA:DHE-RSA-AES128-SHA256:DHE-RSA-AES128-SHA:DHE-DSS-AES128-SHA256:DHE-RSA-AES256-SHA256:DHE-DSS-AES256-SHA:DHE-RSA-AES256-SHA:AES128-GCM-SHA256:AES256-GCM-SHA384:AES128-SHA256:AES256-SHA256:AES128-SHA:AES256-SHA:AES:CAMELLIA:!aNULL:!eNULL:!EXPORT:!DES:!RC4:!MD5:!PSK:!aECDH:!EDH-DSS-DES-CBC3-SHA:!EDH-RSA-DES-CBC3-SHA:!KRB5-DES-CBC3-SHA"' . PHP_EOL;
+            $ciphers = array(
+                'ECDHE-ECDSA-AES256-GCM-SHA384',
+                'ECDHE-RSA-AES256-GCM-SHA384',
+                'ECDHE-ECDSA-CHACHA20-POLY1305',
+                'ECDHE-RSA-CHACHA20-POLY1305',
+                'ECDHE-ECDSA-AES128-GCM-SHA256',
+                'ECDHE-RSA-AES128-GCM-SHA256',
+                'ECDHE-ECDSA-AES256-SHA384',
+                'ECDHE-RSA-AES256-SHA384',
+                'ECDHE-ECDSA-AES128-SHA256',
+                'ECDHE-RSA-AES128-SHA256'
+            );
+            $lighty_config .= 'ssl.cipher-list = "' . join(':', $ciphers) . '"' . PHP_EOL;
         } else {
-            $ssl_config .= 'ssl.cipher-list = "'.$config['system']['webgui']['ssl-ciphers'].'"' . PHP_EOL;
+            $lighty_config .= 'ssl.cipher-list = "'.$config['system']['webgui']['ssl-ciphers'].'"' . PHP_EOL;
         }
-        if(!(empty($ca) || (strlen(trim($ca)) == 0))) {
-            $ssl_config .= "ssl.ca-file = \"/var/etc/{$ca_location}\"\n\n";
+        if (!empty($config['system']['webgui']['ssl-hsts'])) {
+            $lighty_config .= "setenv.add-response-header  = (\n";
+            $lighty_config .= "    \"Strict-Transport-Security\" => \"max-age=15768000;\"\n";
+            $lighty_config .= ")\n";
         }
+
+        $lighty_config .= "\n";
     }
 
-    $lighty_config .= "\$SERVER[\"socket\"]  == \"[::]:{$lighty_port}\" {\n";
-
-    /* address a bug in IPv6 handling */
-    if ($config['system']['webgui']['protocol'] == "https") {
-        $lighty_config .= $ssl_config;
-    }
-
-    $lighty_config .= "}\n\n";
-
-    $lighty_config .= "\$SERVER[\"socket\"]  == \"0.0.0.0:{$lighty_port}\" { }\n";
-
-    if ($config['system']['webgui']['protocol'] == "https") {
-        $lighty_config .= $ssl_config;
+    foreach ($listeners as $listener) {
+        if (is_ipaddrv6($listener)) {
+            $listener = "[{$listener}]";
+        }
+        $lighty_config .= "\$SERVER[\"socket\"] == \"{$listener}:{$lighty_port}\" {\n";
+        if ($config['system']['webgui']['protocol'] == "https") {
+            $lighty_config .= '    ssl.engine = "enable"' . PHP_EOL;
+        }
+        $lighty_config .= "}\n";
     }
 
     $lighty_config .= <<<EOD
 
 ## error-handler for status 404
 #server.error-handler-404   = "/error-handler.html"
-#server.error-handler-404   = "/error-handler.php"
+server.error-handler-404   = "/ui/404"
 
 ## to help the rc.scripts
 server.pid-file            = "/var/run/lighty-webConfigurator.pid"
@@ -379,31 +444,28 @@ compress.filetype  = ("text/plain","text/css", "text/xml", "text/javascript" )
 
 {$cgi_config}
 
-expire.url = (
-        "" => "access 50 hours",
-        )
+expire.url = ( "" => "access 50 hours" )
 
 EOD;
 
-  // Add HTTP to HTTPS redirect
-  if ($config['system']['webgui']['protocol'] == "https" && !isset($config['system']['webgui']['disablehttpredirect'])) {
-      if($lighty_port != "443") {
-          $redirectport = ":{$lighty_port}";
-      } else {
-          $redirectport = "";
-      }
-      $lighty_config .= <<<EOD
-\$SERVER["socket"] == ":80" {
-  \$HTTP["host"] =~ "(.*)" {
-    url.redirect = ( "^/(.*)" => "https://%1{$redirectport}/$1" )
-  }
+    /* add HTTP to HTTPS redirect */
+    if ($config['system']['webgui']['protocol'] == 'https' &&
+        !isset($config['system']['webgui']['disablehttpredirect'])) {
+        $redirectport = $lighty_port != "443" ? ":{$lighty_port}" : '';
+        foreach ($listeners as $listener) {
+            if (is_ipaddrv6($listener)) {
+                $listener = "[{$listener}]";
+            }
+            $lighty_config .= <<<EOD
+
+\$SERVER["socket"] == "{$listener}:80" {
+    \$HTTP["host"] =~ "(.*)" {
+        url.redirect = ( "^/(.*)" => "https://%1{$redirectport}/$1" )
+    }
 }
-\$SERVER["socket"] == "[::]:80" {
-  \$HTTP["host"] =~ "(.*)" {
-    url.redirect = ( "^/(.*)" => "https://%1{$redirectport}/$1" )
-  }
-}
+
 EOD;
+        }
     }
 
     if (false === file_put_contents('/var/etc/lighty-webConfigurator.conf', $lighty_config)) {

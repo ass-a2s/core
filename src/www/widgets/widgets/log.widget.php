@@ -1,320 +1,230 @@
 <?php
 
 /*
-    Copyright (C) 2014 Deciso B.V.
-    Copyright (C) 2007 Scott Dale
-    Copyright (C) 2009 Jim Pingle <jimp@pfsense.org>
-    Copyright (C) 2004-2005 T. Lechat <dev@lechat.org>
-    Copyright (C) 2004-2005 Manuel Kasper <mk@neon1.net>
-    Copyright (C) 2004-2005 Jonathan Watt <jwatt@jwatt.org>
-    All rights reserved.
-
-    Redistribution and use in source and binary forms, with or without
-    modification, are permitted provided that the following conditions are met:
-
-    1. Redistributions of source code must retain the above copyright notice,
-       this list of conditions and the following disclaimer.
-
-    2. Redistributions in binary form must reproduce the above copyright
-       notice, this list of conditions and the following disclaimer in the
-       documentation and/or other materials provided with the distribution.
-
-    THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
-    INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
-    AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
-    AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
-    OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-    SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-    INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-    CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-    ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-    POSSIBILITY OF SUCH DAMAGE.
-*/
+ * Copyright (C) 2014 Deciso B.V.
+ * Copyright (C) 2007 Scott Dale
+ * Copyright (C) 2009 Jim Pingle <jimp@pfsense.org>
+ * Copyright (C) 2004-2005 T. Lechat <dev@lechat.org>
+ * Copyright (C) 2004-2005 Manuel Kasper <mk@neon1.net>
+ * Copyright (C) 2004-2005 Jonathan Watt <jwatt@jwatt.org>
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
+ * AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
+ * OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ */
 
 require_once("guiconfig.inc");
 require_once("interfaces.inc");
-require_once("filter_log.inc");
 
-function find_action_image($action)
-{
-  if ((strstr(strtolower($action), 'p')) || (strtolower($action) == 'rdr')) {
-    return 'glyphicon glyphicon-play text-success';
-  }
+$pconfig = $_POST;
 
-  if (strstr(strtolower($action), 'r')) {
-    return 'glyphicon glyphicon-remove text-warning';
-  }
-
-  return 'glyphicon glyphicon-remove text-danger';
-}
-
-/**
- * original from diag_dns.php
- * temporary solution.
- */
-function display_host_results ($address,$hostname,$dns_speeds) {
-    $map_lengths = function($element) { return strlen($element[0]); };
-    echo gettext("IP Address") . ": {$address} \n";
-    echo gettext("Host Name") . ": {$hostname} \n";
-    echo "\n";
-    $text_table = array();
-    $text_table[] = array(gettext("Server"), gettext("Query Time"));
-    if (is_array($dns_speeds)) {
-        foreach ($dns_speeds as $qt) {
-            $text_table[] = array(trim($qt['dns_server']), trim($qt['query_time']));
-        }
-    }
-    $col0_padlength = max(array_map($map_lengths, $text_table)) + 4;
-    foreach ($text_table as $text_row) {
-        echo str_pad($text_row[0], $col0_padlength) . $text_row[1] . "\n";
-    }
-}
-
-if (!empty($_GET['host']) && !empty($_GET['dialog_output'])) {
-    $host = trim($_GET['host'], " \t\n\r\0\x0B[];\"'");
-    $host_esc = escapeshellarg($host);
-    $dns_servers = array();
-    exec("/usr/bin/grep nameserver /etc/resolv.conf | /usr/bin/cut -f2 -d' '", $dns_servers);
-    foreach ($dns_servers as $dns_server) {
-        $query_time = exec("/usr/bin/drill {$host_esc} " . escapeshellarg("@" . trim($dns_server)) . " | /usr/bin/grep Query | /usr/bin/cut -d':' -f2");
-        if ($query_time == "") {
-            $query_time = gettext("No response");
-        }
-        $dns_speeds[] = array('dns_server' => $dns_server, 'query_time' => $query_time);
-    }
-    $ipaddr = "";
-    if (count($input_errors) == 0) {
-        if (is_ipaddr($host)) {
-            $resolved[] = " " . gethostbyaddr($host); // add a space to provide an empty type field
-            $ipaddr = $host;
-        } elseif (is_hostname($host)) {
-            exec("/usr/bin/drill {$host_esc} A | /usr/bin/grep 'IN' | /usr/bin/grep -v ';' | /usr/bin/awk '{ print $4 \" \" $5 }'", $resolved);
-            $ipaddr = explode(" ", $resolved[count($resolved)-1])[1];
-        }
-    }
-
-    display_host_results ($host, $resolved[0], $dns_speeds);
-    exit;
-}
-
-
-if (is_numeric($_POST['filterlogentries'])) {
-    $config['widgets']['filterlogentries'] = $_POST['filterlogentries'];
+if (is_numeric($pconfig['filterlogentries'])) {
+    $config['widgets']['filterlogentries'] = $pconfig['filterlogentries'];
+    $config['widgets']['filterlogentriesupdateinterval'] = $pconfig['filterlogentriesupdateinterval'];
 
     $acts = array();
-    if ($_POST['actpass']) {
-        $acts[] = "Pass";
+    if ($pconfig['actpass']) {
+        $acts[] = 'Pass';
     }
-    if ($_POST['actblock']) {
-        $acts[] = "Block";
+    if ($pconfig['actblock']) {
+        $acts[] = 'Block';
     }
-    if ($_POST['actreject']) {
-        $acts[] = "Reject";
+    if ($pconfig['actreject']) {
+        $acts[] = 'Reject';
     }
 
     if (!empty($acts)) {
-        $config['widgets']['filterlogentriesacts'] = implode(" ", $acts);
-    } else {
+        $config['widgets']['filterlogentriesacts'] = implode(' ', $acts);
+    } elseif (isset($config['widgets']['filterlogentriesacts'])) {
         unset($config['widgets']['filterlogentriesacts']);
     }
-    unset($acts);
 
-    if (($_POST['filterlogentriesinterfaces']) and ($_POST['filterlogentriesinterfaces'] != "All")) {
-        $config['widgets']['filterlogentriesinterfaces'] = trim($_POST['filterlogentriesinterfaces']);
-    } else {
+    if (!empty($pconfig['filterlogentriesinterfaces'])) {
+        $config['widgets']['filterlogentriesinterfaces'] = $pconfig['filterlogentriesinterfaces'];
+    } elseif (isset($config['widgets']['filterlogentriesinterfaces'])) {
         unset($config['widgets']['filterlogentriesinterfaces']);
     }
 
-    write_config("Saved Filter Log Entries via Dashboard");
+    write_config('Saved Filter Log Entries via Dashboard');
     header(url_safe('Location: /index.php'));
     exit;
 }
 
 $nentries = isset($config['widgets']['filterlogentries']) ? $config['widgets']['filterlogentries'] : 5;
-
-//set variables for log
-$nentriesacts       = isset($config['widgets']['filterlogentriesacts'])       ? $config['widgets']['filterlogentriesacts']       : 'All';
-$nentriesinterfaces = isset($config['widgets']['filterlogentriesinterfaces']) ? $config['widgets']['filterlogentriesinterfaces'] : 'All';
-
-$filterfieldsarray = array(
-    "act" => $nentriesacts,
-    "interface" => $nentriesinterfaces
-);
-
-$filter_logfile = '/var/log/filter.log';
-$filterlog = conv_log_filter($filter_logfile, $nentries, 50, $filterfieldsarray);
-
-/* AJAX related routines */
-handle_ajax($nentries, $nentries + 20);
+$updateinterval = isset($config['widgets']['filterlogentriesupdateinterval']) ? $config['widgets']['filterlogentriesupdateinterval'] : 2;
+$nentriesacts = isset($config['widgets']['filterlogentriesacts']) ?  explode(" ", $config['widgets']['filterlogentriesacts']) : array('Pass', 'Block', 'Reject');
+$nentriesinterfaces = isset($config['widgets']['filterlogentriesinterfaces']) ? $config['widgets']['filterlogentriesinterfaces'] : '';
 
 ?>
+<script>
+    $(window).load(function() {
+        // needed to display the widget settings menu
+        $("#log-configure").removeClass("disabled");
+        // icons
+        const field_type_icons = {'pass': 'fa-play', 'block': 'fa-ban', 'rdr': 'fa-exchange', 'nat': 'fa-exchange'};
 
-<script type="text/javascript">
-//<![CDATA[
-lastsawtime = '<?= html_safe(time()) ?>';
-var lines = Array();
-var timer;
-var updateDelay = 30000;
-var isBusy = false;
-var isPaused = false;
-var nentries = <?= html_safe($nentries) ?>;
+        var interface_descriptions = {};
+        ajaxGet('/api/diagnostics/interface/getInterfaceNames', {}, function(data, status) {
+            interface_descriptions = data;
+        });
+        function fetch_log(){
+            var record_spec = [];
+            // read heading, contains field specs
+            $("#filter-log-entries > tbody > tr:first > td").each(function () {
+                record_spec.push({
+                    'column-id': $(this).data('column-id'),
+                    'type': $(this).data('type'),
+                    'class': $(this).attr('class')
+                });
+            });
+            ajaxGet('/api/diagnostics/firewall/log/', {'limit': 100}, function(data, status) {
+                var filtact = [];
 
-<?php
-if (isset($config['syslog']['reverse'])) {
-    echo "var isReverse = true;\n";
-} else {
-    echo "var isReverse = false;\n";
-}
-?>
+                if ($("#actpass").is(':checked')) {
+                    filtact.push('pass');
+                }
+                if ($("#actblock").is(':checked') || $("#actreject").is(':checked')) {
+                    filtact.push('block');
+                }
 
-/* Called by the AJAX updater */
-function format_log_line(row) {
-  var line = '<td class="listMRlr" align="center">' + row[0] + '<\/td>' +
-    '<td class="listMRr ellipsis" title="' + row[1] + '">' + row[1].slice(0,-3) + '<\/td>' +
-    '<td class="listMRr ellipsis" title="' + row[2] + '">' + row[2] + '<\/td>' +
-    '<td class="listMRr ellipsis" title="' + row[3] + '">' + row[3] + '<\/td>' +
-    '<td class="listMRr ellipsis" title="' + row[4] + '">' + row[4] + '<\/td>';
+                let record;
+                while ((record=data.pop()) != null) {
+                    var intf = record['interface'];
 
-  var nentriesacts = "<?= html_safe($nentriesacts) ?>";
-  var nentriesinterfaces = "<?= html_safe($nentriesinterfaces) ?>";
+                    if (interface_descriptions[record['interface']] != undefined) {
+                        intf = interface_descriptions[record['interface']].toLowerCase();
+                    }
 
-  var Action = row[0].match(/alt=.*?(pass|block|reject)/i).join("").match(/pass|block|reject/i).join("");
-  var Interface = row[2];
+                    if ($("#filterlogentriesinterfaces").val() == "" || $("#filterlogentriesinterfaces").val() == intf) {
+                        if (filtact.length == 0 || filtact.indexOf(record['action']) !== -1 ) {
+                            var log_tr = $("<tr>");
+                            log_tr.hide();
+                            $.each(record_spec, function(idx, field){
+                                var log_td = $('<td style="word-break:break-word;">').addClass(field['class']);
+                                var column_name = field['column-id'];
+                                var content = null;
+                                switch (field['type']) {
+                                    case 'icon':
+                                        var icon = field_type_icons[record[column_name]];
+                                        if (icon != undefined) {
+                                            log_td.html('<i class="fa '+icon+'" aria-hidden="true"></i>');
+                                            if (record[column_name] == 'pass') {
+                                                log_td.addClass('text-success');
+                                            } else {
+                                                log_td.addClass('text-danger');
+                                            }
 
-  if ( !(in_arrayi(Action,  nentriesacts.replace      (/\s+/g, ',').split(',') ) ) && (nentriesacts != 'All') )      return false;
-  if ( !(in_arrayi(Interface,  nentriesinterfaces.replace(/\s+/g, ',').split(',') ) ) && (nentriesinterfaces != 'All') )  return false;
+                                        }
+                                        break;
+                                    case 'time':
+                                        log_td.text(record[column_name].replace(/:[0-9]{2}$/, ''));
+                                        break;
+                                    case 'interface':
+                                        if (interface_descriptions[record[column_name]] != undefined) {
+                                            log_td.text(interface_descriptions[record[column_name]]);
+                                        } else {
+                                            log_td.text(record[column_name]);
+                                        }
+                                        break;
+                                    case 'source_address':
+                                        // may support ports, but needs IPv6 fixup
+                                        log_td.text(record[column_name]);
+                                        break;
+                                    case 'destination_address':
+                                        // may support ports, but needs IPv6 fixup
+                                        log_td.text(record[column_name]);
+                                        break;
+                                    default:
+                                        if (record[column_name] != undefined) {
+                                            log_td.text(record[column_name]);
+                                        }
+                                }
+                                log_tr.append(log_td);
+                            });
+                            $("#filter-log-entries > tbody > tr:first").after(log_tr);
+                        }
+                    }
+                }
+                $("#filter-log-entries > tbody > tr:gt("+(parseInt($("#filterlogentries").val()))+")").remove();
+                $("#filter-log-entries > tbody > tr").show();
+            });
 
-  return line;
-}
-//]]>
+            // schedule next fetch
+            var update_interval_ms = parseInt($("#filterlogentriesupdateinterval").val()) * 1000;
+            update_interval_ms = (isNaN(update_interval_ms) || update_interval_ms < 1000 || update_interval_ms > 60000) ? 5000 : update_interval_ms;
+            setTimeout(fetch_log, update_interval_ms);
+        }
+
+        fetch_log();
+    });
 </script>
-<script src="/javascript/filter_log.js" type="text/javascript"></script>
 
 <div id="log-settings" class="widgetconfigdiv" style="display:none;">
-  <form action="/widgets/widgets/log.widget.php" method="post" name="iforma">
-        <table class="table table-striped">
-      <tbody>
-        <tr>
-          <td>
-            <?= gettext('Number of lines to display:') ?>
-          </td>
-        </tr>
-        <tr>
-          <td>
-        <select name="filterlogentries" class="formfld unknown" id="filterlogentries">
-        <?php for ($i = 1; $i <= 20; $i++) {
-?>
-          <option value="<?= html_safe($i) ?>" <?php if ($nentries == $i) {
-                        echo "selected=\"selected\"";
-}?>><?= html_safe($i) ?></option>
-        <?php
-} ?>
-        </select>
-          </td>
-        </tr>
-<?php
-        $Include_Act = explode(" ", $nentriesacts);
-if ($nentriesinterfaces == "All") {
-    $nentriesinterfaces = "";
-}
-?>
-    <tr>
-      <td>
-    <input id="actpass"   name="actpass"   type="checkbox" value="Pass"   <?php if (in_arrayi('Pass', $Include_Act)) {
-            echo "checked=\"checked\"";
-} ?> /> Pass
-    <input id="actblock"  name="actblock"  type="checkbox" value="Block"  <?php if (in_arrayi('Block', $Include_Act)) {
-            echo "checked=\"checked\"";
-} ?> /> Block
-    <input id="actreject" name="actreject" type="checkbox" value="Reject" <?php if (in_arrayi('Reject', $Include_Act)) {
-            echo "checked=\"checked\"";
-} ?> /> Reject
-      </td>
-    </tr>
-    <tr>
-      <td>
-        <?= gettext('Interfaces:'); ?>
-      </td>
-    </tr>
-    <tr>
-      <td>
-    <select id="filterlogentriesinterfaces" name="filterlogentriesinterfaces" class="formselect">
-      <option value="All"><?= gettext('ALL') ?></option>
-<?php
-        $interfaces = get_configured_interface_with_descr();
-foreach ($interfaces as $iface => $ifacename) :
-?>
-    <option value="<?=$iface;?>" <?php if ($nentriesinterfaces == $iface) {
-        echo "selected=\"selected\"";
-}?>>
-        <?=htmlspecialchars($ifacename);?>
-    </option>
-<?php
-endforeach;
-        unset($interfaces);
-        unset($Include_Act);
-?>
-    </select>
-  </td>
-  </tr>
-  <tr>
-    <td>
-    <input id="submita" name="submita" type="submit" class="btn btn-primary formbtn" value="<?= gettext('Save') ?>" />
-    </td>
-  </tr>
-  </tbody>
-  </table>
+  <form action="/widgets/widgets/log.widget.php" method="post" name="iformd">
+    <table class="table table-condensed">
+      <tr>
+        <td>
+          <label for="filterlogentries"><?= gettext('Number of log entries:') ?></label><br/>
+          <select id="filterlogentries" name="filterlogentries" class="selectpicker_widget">
+<?php for ($i = 1; $i <= 20; $i++): ?>
+            <option value="<?= html_safe($i) ?>" <?= $nentries == $i ? 'selected="selected"' : '' ?>><?= html_safe($i) ?></option>
+<?php endfor ?>
+          </select><br/>
+          <label for="filterlogentriesupdateinterval"><?= gettext('Update interval in seconds:') ?></label><br/>
+          <select id="filterlogentriesupdateinterval" name="filterlogentriesupdateinterval" class="selectpicker_widget">
+<?php for ($i = 1; $i <= 60; $i++): ?>
+            <option value="<?= html_safe($i) ?>" <?= $updateinterval == $i ? 'selected="selected"' : '' ?>><?= html_safe($i) ?></option>
+<?php endfor ?>
+          </select><br/>
+          <label for="filterlogentriesinterfaces"><?= gettext('Interfaces to display:'); ?></label><br/>
+          <select id="filterlogentriesinterfaces" name="filterlogentriesinterfaces" class="selectpicker_widget">
+            <option value=""><?= gettext('All') ?></option>
+<?php foreach (get_configured_interface_with_descr() as $iface => $ifacename): ?>
+            <option value="<?= html_safe($iface) ?>" <?= $nentriesinterfaces == $iface ? 'selected="selected"' : '' ?>>
+              <?= html_safe($ifacename) ?>
+            </option>
+<?php endforeach ?>
+          </select><br/><br/>
+          <table style="width:348px">
+            <tr>
+              <td><label for="actblock"><input id="actblock" name="actblock" type="checkbox" value="Block" <?=in_array('Block', $nentriesacts) ? "checked=\"checked\"" : "";?> />Block</label></td>
+              <td><label for="actreject"><input id="actreject" name="actreject" type="checkbox" value="Reject" <?=in_array('Reject', $nentriesacts) ? "checked=\"checked\"" : "";?> />Reject</label></td>
+              <td><button name="submit_firewall_logs_widget" type="submit" class="btn btn-primary" value="yes"><?= gettext('Save') ?></button></td>
+              <td><label for="actpass"><input id="actpass" name="actpass" type="checkbox" value="Pass" <?=in_array('Pass', $nentriesacts) ? "checked=\"checked\"" : "";?> />Pass</label></td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
   </form>
 </div>
 
-<table class="table table-striped" width="100%" border="0" cellpadding="0" cellspacing="0" summary="logs">
-  <thead>
+<table class="table table-striped table-condensed" id="filter-log-entries">
+  <tbody>
     <tr>
-      <td class="listhdrr"><?=gettext("Act");?></td>
-      <td class="listhdrr"><?=gettext("Time");?></td>
-      <td class="listhdrr"><?=gettext("Interface");?></td>
-      <td class="listhdrr"><?=gettext("Source");?></td>
-      <td class="listhdrr"><?=gettext("Destination");?></td>
+      <td data-column-id="action" data-type="icon" class="text-center"><strong><?= gettext('Act') ?></strong></td>
+      <td data-column-id="__timestamp__" data-type="time"><strong><?= gettext('Time') ?></strong></td>
+      <td data-column-id="interface" data-type="interface" class="text-center"><strong><?= gettext('Interface') ?></strong></td>
+      <td data-column-id="src" data-type="source_address"><strong><?= gettext('Source') ?></strong></td>
+      <td data-column-id="dst" data-type="destination_address"><strong><?= gettext('Destination') ?></strong></td>
     </tr>
-  </thead>
-  <tbody id='filter-log-entries'>
-  <?php
-    $rowIndex = 0;
-    foreach ($filterlog as $filterent) :
-        $evenRowClass = $rowIndex % 2 ? " listMReven" : " listMRodd";
-        $rowIndex++;
-    ?>
-    <tr class="<?=$evenRowClass?>">
-      <td class="listMRlr nowrap" align="center">
-      <a href="#" onclick="javascript:getURL('diag_logs_filter.php?getrulenum=<?= html_safe("{$filterent['rulenum']},{$filterent['act']}") ?>', outputrule);">
-      <span class="<?= html_safe(find_action_image($filterent['act'])) ?>" alt="<?= html_safe($filterent['act']) ?>" title="<?= html_safe($filterent['act']) ?>"></span>
-      </a>
-      </td>
-      <td class="listMRr ellipsis nowrap" title="<?= html_safe($filterent['time']) ?>"><?= html_safe(substr($filterent['time'], 0, -3)) ?></td>
-      <td class="listMRr ellipsis nowrap" title="<?= html_safe($filterent['interface']) ?>"><?= html_safe($filterent['interface']) ?></td>
-      <td class="listMRr ellipsis nowrap" title="<?= html_safe($filterent['src']) ?>">
-        <a href="#" onclick="javascript:getURL('widgets/widgets/log.widget.php?host=<?= html_safe($filterent['srcip']) ?>&amp;dialog_output=true', outputrule);"
-          title="<?= html_safe(gettext('Reverse Resolve with DNS')) ?>"><?= html_safe($filterent['srcip']) ?></a>
-      </td>
-      <td class="listMRr ellipsis nowrap" title="<?= html_safe($filterent['dst']) ?>">
-        <a href="#" onclick="javascript:getURL('widgets/widgets/log.widget.php?host=<?= html_safe($filterent['dstip']) ?>&amp;dialog_output=true', outputrule);"
-          title="<?= html_safe(gettext('Reverse Resolve with DNS')) ?>"><?= html_safe($filterent['dstip']) ?></a>:<?= html_safe($filterent['dstport']) ?>
-      </td>
-      <?php
-            if ($filterent['proto'] == "TCP") {
-                $filterent['proto'] .= ":{$filterent['tcpflags']}";
-            }
-            ?>
-    </tr>
-  <?php
-    endforeach; ?>
-    <tr style="display:none;"><td></td></tr>
   </tbody>
 </table>
-
-<!-- needed to display the widget settings menu -->
-<script type="text/javascript">
-//<![CDATA[
-  $("#log-configure").removeClass("disabled");
-//]]>
-</script>

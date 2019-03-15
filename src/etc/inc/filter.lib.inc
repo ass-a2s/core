@@ -1,29 +1,29 @@
 <?php
 
-/**
- *    Copyright (C) 2016 Deciso B.V.
- *    All rights reserved.
+/*
+ * Copyright (C) 2016 Deciso B.V.
+ * All rights reserved.
  *
- *    Redistribution and use in source and binary forms, with or without
- *    modification, are permitted provided that the following conditions are met:
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
  *
- *    1. Redistributions of source code must retain the above copyright notice,
- *       this list of conditions and the following disclaimer.
+ * 1. Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer.
  *
- *    2. Redistributions in binary form must reproduce the above copyright
- *       notice, this list of conditions and the following disclaimer in the
- *       documentation and/or other materials provided with the distribution.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
  *
- *    THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
- *    INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
- *    AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
- *    AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
- *    OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- *    SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- *    INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- *    CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- *    ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- *    POSSIBILITY OF SUCH DAMAGE.
+ * THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
+ * AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
+ * OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
  */
 
 function filter_core_bootstrap($fw)
@@ -46,10 +46,65 @@ function filter_core_bootstrap($fw)
     filter_core_rules_system($fw, $filter_rule_defaults);
 }
 
-function filter_core_antilockout_ports()
+
+/**
+ * Initialize firewall plugin system with interfaces and gateways
+ * @return \OPNsense\Firewall\Plugin
+ */
+function filter_core_get_initialized_plugin_system()
+{
+    $fw = new \OPNsense\Firewall\Plugin();
+    $cnfint = legacy_config_get_interfaces(array("enable" => true));
+    $ifdetails = legacy_interfaces_details();
+    foreach ($cnfint as $key => &$value) {
+        // to set "reply-to" we need to know the gateway for our interface, let's collect it here and pass it on to
+        // setInterfaceMapping()
+        if (!is_ipaddrv4($value['ipaddr']) || (!empty($value['gateway']) && $value['gateway'] != 'none')) {
+            $value['gateway'] = get_interface_gateway($key);
+        } else {
+            $value['gateway'] = null;
+        }
+        if (!is_ipaddrv6($value['ipaddrv6']) || (!empty($value['gatewayv6']) && $value['gatewayv6'] != 'none')) {
+            $value['gatewayv6'] = get_interface_gateway_v6($key);
+        } else {
+            $value['gatewayv6'] = null;
+        }
+        // In some cases we need to know if there currently are addresses configured on an interface, we pass
+        // the relevant ifconfig data to our interfacemapping (prevents "could not parse host specification" on load)
+        if (!empty($ifdetails[$value['if']])) {
+            $value['ifconfig'] = array();
+            $value['ifconfig']['ipv4'] = $ifdetails[$value['if']]['ipv4'];
+            $value['ifconfig']['ipv6'] = $ifdetails[$value['if']]['ipv6'];
+        }
+    }
+    // init interfaces and gateways
+    $fw->setInterfaceMapping($cnfint);
+    $fw->setGateways(return_gateways_array(false, true));
+    $fw->setGatewayGroups(return_gateway_groups_array());
+    return $fw;
+}
+
+function filter_core_get_antilockout()
 {
     global $config;
+
     $lockout_ports = array();
+    $lockout_if = null;
+
+    if (isset($config['system']['webgui']['noantilockout'])) {
+        return array();
+    }
+
+    if (!empty($config['interfaces']['lan']['if'])) {
+        $lockout_if = 'lan';
+    } elseif (!empty($config['interfaces']['opt1']['if'])) {
+        $lockout_if = 'opt1';
+    } elseif (count(get_configured_interface_with_descr()) == 1 && !empty($config['interfaces']['wan']['if'])) {
+        $lockout_if = 'wan';
+    } else {
+        return array();
+    }
+
     /*
      * XXX Some issues here:
      *
@@ -57,25 +112,88 @@ function filter_core_antilockout_ports()
      * 2. Both webgui and openssh are plugins, their code should
      *    reside in the respective plugins.inc.d file once anti-
      *    lockout is fully pluggable.
-     * 3. Openssh opens the port when install media is detected
-     *    and no ssh has ever been configured.  This is in line
+     * 3. OpenSSH opens the port when install media is detected
+     *    and no ssh has ever been configured. This is in line
      *    with how the plugin behaves, but probably looks odd.
      */
-    if (!isset($config['system']['webgui']['noantilockout'])) {
-        if (empty($config['system']['webgui']['port'])) {
-            $lockout_ports[] = $config['system']['webgui']['protocol'] == "https" ? "443" : "80";
-        } else {
-            $lockout_ports[] = $config['system']['webgui']['port'];
-        }
-        if ($config['system']['webgui']['protocol'] == "https" && !isset($config['system']['webgui']['disablehttpredirect'])) {
-            $lockout_ports[] = "80";
-        }
-        if (isset($config['system']['ssh']['enabled']) ||
-            (!isset($config['system']['ssh']['noauto']) && is_install_media() && is_process_running('sshd'))) {
-            $lockout_ports[] = empty($config['system']['ssh']['port']) ? "22" : $config['system']['ssh']['port'];
+    if (empty($config['system']['webgui']['port'])) {
+        $lockout_ports[] = $config['system']['webgui']['protocol'] == 'https' ? '443' : '80';
+    } else {
+        $lockout_ports[] = $config['system']['webgui']['port'];
+    }
+    if ($config['system']['webgui']['protocol'] == 'https' && !isset($config['system']['webgui']['disablehttpredirect'])) {
+        $lockout_ports[] = '80';
+    }
+    if (isset($config['system']['ssh']['enabled']) ||
+        (!isset($config['system']['ssh']['noauto']) && is_install_media() && is_process_running('sshd'))) {
+        $lockout_ports[] = empty($config['system']['ssh']['port']) ? '22' : $config['system']['ssh']['port'];
+    }
+
+    if (!count($lockout_ports)) {
+        return array();
+    }
+
+    sort($lockout_ports);
+
+    /* return a convenient one-entry array to iterate over for our callers */
+    return array($lockout_if => $lockout_ports);
+}
+
+/**
+ * recursively collect port alias(es) contents
+ * @param string|null $aliasname alias name, or null to fetch all aliases
+ * @param array $aliases aliases already parsed (prevent deadlock)
+ * @return array containing ports
+ * @throws \OPNsense\Base\ModelException
+ */
+function filter_core_get_port_alias($aliasname, $aliases=array())
+{
+    $response = array();
+    $aliases[] = $aliasname;
+    foreach ((new \OPNsense\Firewall\Alias())->aliasIterator() as $aliased) {
+        if ($aliasname == $aliased['name'] && $aliased['type'] == 'port') {
+            foreach (explode("\n", $aliased['content']) as $address) {
+                if (is_alias($address)) {
+                    if (!in_array($address, $aliases)) {
+                        foreach (filter_core_get_port_alias($address, $aliases) as $port) {
+                            if (!in_array($port, $response)) {
+                                $response[] = $port;
+                            }
+                        }
+                    }
+                } elseif ((is_port($address) || is_portrange($address)) && !in_array($address, $response)) {
+                    $response[] = $address ;
+                }
+            }
         }
     }
-    return $lockout_ports;
+    return $response;
+}
+
+
+/**
+ * Collect vpn networks for outbound rules
+ */
+function filter_core_get_default_nat_outbound_networks()
+{
+    global $config;
+    $result = array("127.0.0.0/8");
+    // Add openvpn networks
+    foreach (array('openvpn-server', 'openvpn-client') as $section) {
+        if (!empty($config['openvpn'][$section])) {
+            foreach ($config['openvpn'][$section] as $ovpn) {
+                if (!isset($ovpn['disable']) && !empty($ovpn['tunnel_network'])) {
+                    $result[] = $ovpn['tunnel_network'];
+                }
+            }
+        }
+    }
+    // Add ipsec network pool if specified
+    if (!empty($config['ipsec']['client']['pool_address']) && !empty($config['ipsec']['client']['pool_netbits'])) {
+        $tonathosts[] = "{$config['ipsec']['client']['pool_address']}/{$config['ipsec']['client']['pool_netbits']}";
+    }
+
+    return $result;
 }
 
 /**
@@ -88,11 +206,12 @@ function filter_core_rules_system($fw, $defaults)
     // block All IPv6 except loopback traffic
     $fw->registerFilterRule(1,
       array('interface' => 'loopback', 'ipprotocol'=>'inet6', 'disabled' => isset($config['system']['ipv6allow']),
-          'label' => 'Pass all loopback IPv6'),
+          'descr' => 'Pass all loopback IPv6', '#ref' => 'system_advanced_firewall.php#ipv6allow'),
       $defaults['pass']
     );
     $fw->registerFilterRule(1,
-      array('ipprotocol'=>'inet6','label' => 'Block all IPv6', 'disabled' => isset($config['system']['ipv6allow'])),
+      array('ipprotocol'=>'inet6','descr' => 'Block all IPv6', 'disabled' => isset($config['system']['ipv6allow']),
+            '#ref' => 'system_advanced_firewall.php#ipv6allow'),
       $defaults['block']
     );
 
@@ -111,7 +230,7 @@ function filter_core_rules_system($fw, $defaults)
     // Allow only bare essential icmpv6 packets
     $fw->registerFilterRule(1,
       array('ipprotocol'=>'inet6', 'protocol' => 'ipv6-icmp', 'icmp6-type' => '129,133,134,135,136',
-            'statetype' => 'keep', 'label' => 'IPv6 requirements (ICMP)', 'from' => 'fe80::/10',
+            'statetype' => 'keep', 'label' => 'IPv6 requirements (ICMP)', 'from' => '(self)',
             'to' => 'fe80::/10,ff02::/16', 'direction' => 'out' ),
       $defaults['pass']
     );
@@ -137,7 +256,7 @@ function filter_core_rules_system($fw, $defaults)
     // CARP defaults
     $carp_disabled = empty($config['hasync']) && empty($config['virtualip']['vip']);
     $fw->registerFilterRule(1,
-      array('protocol' => 'carp', 'from' => '(self)', 'direction' => 'in', 'disabled' => $carp_disabled),
+      array('protocol' => 'carp', 'from' => '(self)', 'direction' => 'in', 'disabled' => !$carp_disabled),
       $defaults['block']
     );
     $fw->registerFilterRule(1,array('protocol' => 'carp'),$defaults['pass']);
@@ -166,24 +285,30 @@ function filter_core_rules_system($fw, $defaults)
     // block bogons and private nets
     $bogontmpl = array('type' => 'block', 'log' => !isset($config['syslog']['nologbogons']), 'disablereplyto' => 1);
     $privtmpl = array('type' => 'block', 'log' => !isset($config['syslog']['nologprivatenets']),
-      'from' => '10.0.0.0/8,127.0.0.0/8,100.64.0.0/10,172.16.0.0/12,192.168.0.0/16,fc00::/7',
+      'from' => '10.0.0.0/8,127.0.0.0/8,100.64.0.0/10,172.16.0.0/12,192.168.0.0/16',
       'disablereplyto' => 1);
     foreach ($fw->getInterfaceMapping() as $intf => $intfinfo) {
         $fw->registerFilterRule(5,
-          array('from' => "<bogons>", 'direction' => 'in', 'interface' => $intf,
-            'label' => "block bogon IPv4 networks from ".$intfinfo['descr'],
+          array('from' => "<bogons>", 'direction' => 'in', 'interface' => $intf, 'ipprotocol' => 'inet',
+            'label' => "Block bogon IPv4 networks from ".$intfinfo['descr'],
             'disabled' => !isset($intfinfo['blockbogons'])),
           $bogontmpl
         );
         $fw->registerFilterRule(5,
-          array('from' => "<bogonsv6>", 'direction' => 'in', 'interface' => $intf,
+          array('from' => "<bogonsv6>", 'direction' => 'in', 'interface' => $intf, 'ipprotocol' => 'inet6',
             'disabled' => !isset($config['system']['ipv6allow']) || !isset($intfinfo['blockbogons']),
-            'label' => "block bogon IPv6 networks from ".$intfinfo['descr']),
+            'label' => "Block bogon IPv6 networks from ".$intfinfo['descr']),
           $bogontmpl
         );
         $fw->registerFilterRule(5,
-          array('direction' => 'in', 'interface' => $intf,
+          array('direction' => 'in', 'interface' => $intf, 'ipprotocol' => 'inet',
             'label' => "Block private networks from ".$intfinfo['descr'],
+            'disabled' => !isset($intfinfo['blockpriv'])),
+          $privtmpl
+        );
+        $fw->registerFilterRule(5,
+          array('direction' => 'in', 'interface' => $intf, 'ipprotocol' => 'inet6',
+            'label' => "Block private networks from ".$intfinfo['descr'], 'from' => 'fc00::/7',
             'disabled' => !isset($intfinfo['blockpriv'])),
           $privtmpl
         );
@@ -195,19 +320,29 @@ function filter_core_rules_system($fw, $defaults)
         if (isset($config['system']['ipv6allow']) && in_array($intfinfo['ipaddrv6'], array("slaac","dhcp6"))) {
             $fw->registerFilterRule(1,
               array('protocol' => 'udp', 'from' => 'fe80::/10', 'from_port' => 546, 'to' => 'fe80::/10',
-                    'interface' => $intf, 'to_port' => 546, 'label' =>'allow dhcpv6 client in ' . $intfinfo['descr']),
+                    'interface' => $intf, 'to_port' => 546, 'descr' =>'allow dhcpv6 client in ' . $intfinfo['descr'],
+                    '#ref' => 'system_advanced_firewall.php#ipv6allow'),
               $defaults['pass']
             );
             $fw->registerFilterRule(1,
               array('protocol' => 'udp', 'from_port' => 547,'to_port' => 546, 'direction' => 'in',
-                    'interface' => $intf, 'label' =>'allow dhcpv6 client in ' . $intfinfo['descr']),
+                    'interface' => $intf, 'descr' =>'allow dhcpv6 client in ' . $intfinfo['descr'],
+                    '#ref' => 'system_advanced_firewall.php#ipv6allow'),
               $defaults['pass']
             );
-            $fw->registerFilterRule(1,
-              array('protocol' => 'udp', 'from_port' => 546,'to_port' => 547, 'direction' => 'out',
-                    'interface' => $intf, 'label' =>'allow dhcpv6 client in ' . $intfinfo['descr']),
-              $defaults['pass']
+            $dhcpv6_opts = array(
+                'descr' => 'allow dhcpv6 client in ' . $intfinfo['descr'],
+                '#ref' => 'system_advanced_firewall.php#ipv6allow',
+                'direction' => 'out',
+                'interface' => $intf,
+                'protocol' => 'udp',
+                'from_port' => 546,
+                'to_port' => 547,
             );
+            if (isset($intfinfo['dhcp6vlanprio'])) {
+                 $dhcpv6_opts['set-prio'] = $intfinfo['dhcp6vlanprio'];
+            }
+            $fw->registerFilterRule(1, $dhcpv6_opts, $defaults['pass']);
         }
         // IPv4
         switch (empty($intfinfo['ipaddr']) ? "" : $intfinfo['ipaddr']) {
@@ -291,7 +426,7 @@ function filter_core_rules_system($fw, $defaults)
                 break;
             default:
               if (isset($config['dhcpdv6'][$intf]['enable']) || isset($intfinfo['track6-interface'])
-                || (!empty($config['dhcrelay6']['interface'])  && in_array($intf, explode(',', $config['dhcrelay6']['interface'])))) {
+                || (!empty($config['dhcrelay6']['interface']) && in_array($intf, explode(',', $config['dhcrelay6']['interface'])))) {
                     $fw->registerFilterRule(5,
                       array('protocol' => 'udp','ipprotocol' => 'inet6', 'from' => 'fe80::/10', 'to' => 'fe80::/10,ff02::/16',
                             'to_port' => 546, 'interface' => $intf,
@@ -335,30 +470,29 @@ function filter_core_rules_system($fw, $defaults)
         $defaults['pass']
     );
     // ipsec
-    if (!empty($fw->getInterfaceMapping()['enc0'])) {
+    if (!empty(iterator_to_array($fw->getInterfaceMapping())['enc0'])) {
         $fw->registerFilterRule(5,
           array('direction' => 'out', 'statetype' => 'keep', 'quick' => false, 'interface' => 'enc0',
                 'label' =>'IPsec internal host to host'),
           $defaults['pass']
         );
     }
-    // anti-lockout
-    $lockoutprts = filter_core_antilockout_ports();
-    if (count($lockoutprts) > 0) {
-        $lockoutif = null;
-        if (!empty($config['interfaces']['lan']['if'])) {
-            $lockoutif = 'lan';
-        } elseif (count($config['interfaces']) == 1 && !empty($config['interfaces']['wan']['if'])) {
-            $lockoutif = 'wan';
-        }
-        if (!empty($lockoutif)) {
-            $fw->registerFilterRule(5,
-              array('direction' => 'in', 'interface' => $lockoutif, 'statetype' => 'keep',
-                    'protocol' => 'tcp', 'to' => '(self)', 'to_port' => implode(' ', $lockoutprts),
-                    'label' =>'anti-lockout rule'),
-              $defaults['pass']
-            );
-        }
+
+    foreach(filter_core_get_antilockout() as $lockoutif => $lockoutprts) {
+        $fw->registerFilterRule(
+            5,
+            array(
+                'direction' => 'in',
+                'interface' => $lockoutif,
+                'statetype' => 'keep',
+                'protocol' => 'tcp',
+                'to' => '(self)',
+                'to_port' => implode(' ', $lockoutprts),
+                'descr' => 'anti-lockout rule',
+                '#ref' => 'system_advanced_firewall.php#schedule_states'
+            ),
+            $defaults['pass']
+        );
     }
 
     // TODO: move to pptpd plugin when filter.lib.inc is part of the standard release
@@ -376,32 +510,35 @@ function filter_core_rules_system($fw, $defaults)
         );
     }
 
-    // out from this Firewall, using the selected gateway.
-    foreach ($fw->getInterfaceMapping() as $ifdescr => $ifcfg) {
-        if (!isset($ifcfg['virtual']) && $ifcfg['if'] != 'lo0') {
-            $intf_has_v4 = false;
-            $intf_has_v6 = false;
-            foreach (legacy_getall_interface_addresses($ifcfg['if']) as $addr) {
-                $intf_has_v4 = $intf_has_v4 || is_subnetv4($addr);
-                $intf_has_v6 = $intf_has_v6 || is_subnetv6($addr);
-            }
-            foreach ($fw->getInterfaceGateways($ifcfg['if']) as $gwname) {
-                $gwproto = $fw->getGateway($gwname)['proto'];
-                // only try to add gateway rules for traffic leaving this interface when the correct protocol is
-                // assigned to the interface (e.g. no ipv4 gateway when :network doesn't resolve to an ipv4 network)
-                if (($gwproto == 'inet' && $intf_has_v4) || ($gwproto == 'inet6' && $intf_has_v6)) {
-                    $fw->registerFilterRule(100000,
-                      array('from' => $ifcfg['if'], 'direction' => 'out', 'gateway' => $gwname,
-                        'destination' => array('network'=> $ifdescr, "not" => true),
-                        'statetype' => 'keep',
-                        'allowopts' => true,
-                        'quick' => false,
-                        'label' => "let out anything from firewall host itself"),
-                      $defaults['pass']
-                    );
+    // [out from this Firewall, using the selected gateway].
+    // Our default setting has been to force traffic leaving a specific interface to use the associated gateway.
+    // This behaviour can be disabled, so settings can be customized using manual firewall rules.
+    if (empty($config['system']['pf_disable_force_gw'])) {
+        foreach ($fw->getInterfaceMapping() as $ifdescr => $ifcfg) {
+            if (!isset($ifcfg['internal_dynamic']) && $ifcfg['if'] != 'lo0') {
+                $intf_has_v4 = false;
+                $intf_has_v6 = false;
+                foreach (legacy_getall_interface_addresses($ifcfg['if']) as $addr) {
+                    $intf_has_v4 = $intf_has_v4 || is_subnetv4($addr);
+                    $intf_has_v6 = $intf_has_v6 || is_subnetv6($addr);
+                }
+                foreach ($fw->getInterfaceGateways($ifcfg['if']) as $gwname) {
+                    $gwproto = $fw->getGateway($gwname)['proto'];
+                    // only try to add gateway rules for traffic leaving this interface
+                    // when the correct protocol is assigned to the interface
+                    if (($gwproto == 'inet' && $intf_has_v4) || ($gwproto == 'inet6' && $intf_has_v6)) {
+                        $fw->registerFilterRule(100000,
+                          array('from' => $ifcfg['if'], 'direction' => 'out', 'gateway' => $gwname,
+                            'destination' => array('network'=> $ifdescr, "not" => true),
+                            'statetype' => 'keep',
+                            'allowopts' => true,
+                            'quick' => false,
+                            'label' => "let out anything from firewall host itself"),
+                          $defaults['pass']
+                        );
+                    }
                 }
             }
         }
     }
-
 }

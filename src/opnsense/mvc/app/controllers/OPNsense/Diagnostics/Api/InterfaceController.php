@@ -34,13 +34,16 @@ use \OPNsense\Core\Backend;
 
 /**
  * Class InterfaceController
- * @package OPNsense\SystemHealth
+ * @package OPNsense\Diagnostics\Api
  */
 class InterfaceController extends ApiControllerBase
 {
+    /**
+     * collect interface names
+     * @return array interface mapping (raw interface to description)
+     */
     private function getInterfaceNames()
     {
-        // collect interface names
         $intfmap = array();
         $config = Config::getInstance()->object();
         if ($config->interfaces->count() > 0) {
@@ -50,6 +53,16 @@ class InterfaceController extends ApiControllerBase
         }
         return $intfmap;
     }
+
+    /**
+     * retrieve interface name mapping
+     * @return array interface mapping (raw interface to description)
+     */
+    public function getInterfaceNamesAction()
+    {
+        return $this->getInterfaceNames();
+    }
+
     /**
      * retrieve system arp table contents
      * @return array
@@ -57,7 +70,7 @@ class InterfaceController extends ApiControllerBase
     public function getArpAction()
     {
         $backend = new Backend();
-        $response = $backend->configdpRun("interface list arp json");
+        $response = $backend->configdRun('interface list arp json');
         $arptable = json_decode($response, true);
 
         $intfmap = $this->getInterfaceNames();
@@ -76,13 +89,28 @@ class InterfaceController extends ApiControllerBase
     }
 
     /**
+     * retrieve system arp table contents
+     * @return array
+     */
+    public function flushArpAction()
+    {
+        if ($this->request->isPost()) {
+            $backend = new Backend();
+            $response = $backend->configdRun('interface flush arp');
+            return $response;
+        } else {
+            return array("message" => "error");
+        }
+    }
+
+    /**
      * retrieve system ndp table contents
      * @return array
      */
     public function getNdpAction()
     {
         $backend = new Backend();
-        $response = $backend->configdpRun("interface list ndp json");
+        $response = $backend->configdRun('interface list ndp json');
         $ndptable = json_decode($response, true);
 
         $intfmap = $this->getInterfaceNames();
@@ -108,9 +136,9 @@ class InterfaceController extends ApiControllerBase
     {
         $backend = new Backend();
         if (empty($this->request->get('resolve'))) {
-            $response = $backend->configdpRun("interface routes list -n json");
+            $response = $backend->configdRun('interface routes list -n json');
         } else {
-            $response = $backend->configdpRun("interface routes list json");
+            $response = $backend->configdRun('interface routes list json');
         }
 
         $routingtable = json_decode($response, true);

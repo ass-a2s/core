@@ -70,8 +70,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         mark_subsystem_dirty('sysctl');
         header(url_safe('Location: /system_advanced_sysctl.php'));
         exit;
+    } else if ($act == 'reset') {
+        // reset tunables to factory defaults (when available)
+        if (file_exists('/usr/local/etc/config.xml.sample')) {
+            $factory_config = load_config_from_file('/usr/local/etc/config.xml.sample');
+            if (!empty($factory_config['sysctl']) && !empty($factory_config['sysctl']['item'])){
+                $a_tunable = $factory_config['sysctl']['item'];
+                mark_subsystem_dirty('sysctl');
+                write_config();
+            }
+        }
+        header(url_safe('Location: /system_advanced_sysctl.php'));
+        exit;
     } else if (!empty($pconfig['apply'])) {
         system_sysctl_configure();
+        system_login_configure();
         clear_subsystem_dirty('sysctl');
         header(url_safe('Location: /system_advanced_sysctl.php'));
         exit;
@@ -92,20 +105,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         header(url_safe('Location: /system_advanced_sysctl.php'));
         exit;
     }
-
 }
 
 legacy_html_escape_form_data($a_tunable);
+
 if ($act != 'edit') {
     $main_buttons = array(
-        array('href' => 'system_advanced_sysctl.php?act=edit', 'label' => gettext('Add a new tunable')),
+        array('href' => '#set_defaults', 'label' => gettext('Default')),
+        array('href' => 'system_advanced_sysctl.php?act=edit', 'label' => gettext('Add')),
     );
 }
-include("head.inc");
-?>
 
+include("head.inc");
+legacy_html_escape_form_data($pconfig);
+?>
 <body>
-<script type="text/javascript">
+<script>
 $( document ).ready(function() {
   // delete entry
   $(".act_delete").click(function(event){
@@ -129,6 +144,30 @@ $( document ).ready(function() {
             }]
     });
   });
+
+  if ($("a[href='#set_defaults']").length > 0) {
+      // set defaults button visible, change style and hook event
+      $("a[href='#set_defaults']").removeClass('btn-primary').addClass('btn-danger');
+      $("a[href='#set_defaults']").click(function(event){
+          event.preventDefault();
+          BootstrapDialog.show({
+            type:BootstrapDialog.TYPE_DANGER,
+            title: "<?= gettext("Tunable");?>",
+            message: "<?=gettext("Are you sure you want to reset all tunables back to factory defaults?");?>",
+            buttons: [{
+                      label: "<?=gettext("No");?>",
+                      action: function(dialogRef) {
+                          dialogRef.close();
+                      }}, {
+                      label: "<?=gettext("Yes");?>",
+                      action: function(dialogRef) {
+                        $("#action").val("reset");
+                        $("#iform").submit()
+                    }
+                  }]
+          });
+      });
+  }
 });
 </script>
 
@@ -156,80 +195,79 @@ $( document ).ready(function() {
 <?php
         if ($act != "edit") :?>
           <table class="table table-striped">
-            <thead>
+            <tr>
+              <th><?=gettext("Tunable Name"); ?></th>
+              <th><?=gettext("Description"); ?></th>
+              <th><?=gettext("Value"); ?></th>
+              <th class="text-nowrap"></th>
+            </tr>
+<?php
+              $i = 0;
+              foreach ($a_tunable as $tunable) :?>
               <tr>
-                <th><?=gettext("Tunable Name"); ?></th>
-                <th><?=gettext("Description"); ?></th>
-                <th><?=gettext("Value"); ?></th>
-                <th></th>
+                <td><?=$tunable['tunable']; ?></td>
+                <td><?=gettext($tunable['descr']); ?></td>
+                <td>
+                  <?=$tunable['value']; ?>
+                  <?=$tunable['value'] == "default" ? "(" . get_default_sysctl_value($tunable['tunable']) . ")" : "";?>
+                </td>
+                <td class="text-nowrap">
+                  <a href="system_advanced_sysctl.php?act=edit&amp;id=<?=$i;?>" class="btn btn-default btn-xs" data-toggle="tooltip" title="<?=gettext("Edit Tunable"); ?>">
+                    <i class="fa fa-pencil fa-fw"></i>
+                  </a>
+                  <a id="del_<?=$i;?>" data-id="<?=$i;?>" title="<?=gettext("Delete Tunable"); ?>" data-toggle="tooltip"  class="act_delete btn btn-default btn-xs">
+                    <span class="fa fa-trash fa-fw"></span>
+                  </a>
+                </td>
               </tr>
-              </thead>
-              <tbody>
 <?php
-                $i = 0;
-                foreach ($a_tunable as $tunable) :?>
-                <tr>
-                  <td><?=$tunable['tunable']; ?></td>
-                  <td><?=$tunable['descr']; ?></td>
-                  <td>
-                    <?=$tunable['value']; ?>
-                    <?=$tunable['value'] == "default" ? "(" . get_default_sysctl_value($tunable['tunable']) . ")" : "";?>
-                  </td>
-                  <td>
-                    <a href="system_advanced_sysctl.php?act=edit&amp;id=<?=$i;?>" class="btn btn-default btn-xs">
-                        <span data-toggle="tooltip" title="<?=gettext("Edit Tunable"); ?>" class="glyphicon glyphicon-pencil"></span>
-                    </a>
-                    <a id="del_<?=$i;?>" data-id="<?=$i;?>" title="<?=gettext("Delete Tunable"); ?>" data-toggle="tooltip"  class="act_delete btn btn-default btn-xs">
-                      <span class="fa fa-trash text-muted"></span>
-                    </a>
-                  </td>
-                </tr>
-<?php
-                $i++; endforeach; ?>
-              </tbody>
+              $i++; endforeach; ?>
+              <tr>
+                <td colspan="4">
+                  <?= gettext('Tunables are composed of runtime settings for sysctl.conf which take effect ' .
+                    'immediately after apply and boot settings for loader.conf which require a reboot.') ?>
+                </td>
+              </tr>
             </table>
 <?php
             else : ?>
             <form method="post">
-              <table class="table table-striped">
-                <thead>
-                  <tr>
-                    <th colspan="2" valign="top" class="listtopic"><?=gettext("Edit system tunable"); ?></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td><i class="fa fa-info-circle text-muted"></i> <?=gettext("Tunable"); ?></td>
-                    <td>
-                      <input type="text" name="tunable" value="<?=$pconfig['tunable']; ?>" />
-                    </td>
-                  </tr>
-                  <tr>
-                    <td><i class="fa fa-info-circle text-muted"></i> <?=gettext("Description"); ?></td>
-                    <td>
-                      <textarea name="descr"><?=$pconfig['descr']; ?></textarea>
-                    </td>
-                  </tr>
-                  <tr>
-                    <td><i class="fa fa-info-circle text-muted"></i> <?=gettext("Value"); ?></td>
-                    <td>
-                      <input name="value" type="text" value="<?=$pconfig['value']; ?>" />
-                    </td>
-                  </tr>
-                  <tr>
-                    <td>&nbsp;</td>
-                    <td>
-                      <input name="Submit" type="submit" class="btn btn-primary" value="<?=gettext("Save"); ?>" />
-                      <input type="button" class="btn btn-default" value="<?=gettext("Cancel");?>" onclick="window.location.href='/system_advanced_sysctl.php'" />
+              <table class="table table-striped opnsense_standard_table_form">
+                <tr>
+                  <td style="width:22%"><strong><?= gettext('Edit system tunable') ?></strong></td>
+                  <td style="width:78%"></td>
+                </tr>
+                <tr>
+                  <td><i class="fa fa-info-circle text-muted"></i> <?=gettext("Tunable"); ?></td>
+                  <td>
+                    <input type="text" name="tunable" value="<?=$pconfig['tunable']; ?>" />
+                  </td>
+                </tr>
+                <tr>
+                  <td><i class="fa fa-info-circle text-muted"></i> <?=gettext("Description"); ?></td>
+                  <td>
+                    <textarea name="descr"><?=$pconfig['descr']; ?></textarea>
+                  </td>
+                </tr>
+                <tr>
+                  <td><i class="fa fa-info-circle text-muted"></i> <?=gettext("Value"); ?></td>
+                  <td>
+                    <input name="value" type="text" value="<?=$pconfig['value']; ?>" />
+                  </td>
+                </tr>
+                <tr>
+                  <td>&nbsp;</td>
+                  <td>
+                    <input name="Submit" type="submit" class="btn btn-primary" value="<?=html_safe(gettext('Save')); ?>" />
+                    <input type="button" class="btn btn-default" value="<?=html_safe(gettext("Cancel"));?>" onclick="window.location.href='/system_advanced_sysctl.php'" />
 
 <?php
-                      if (isset($id)) :?>
-                      <input name="id" type="hidden" value="<?=$id;?>" />
+                    if (isset($id)) :?>
+                    <input name="id" type="hidden" value="<?=$id;?>" />
 <?php
-                      endif; ?>
-                    </td>
-                  </tr>
-                </tbody>
+                    endif; ?>
+                  </td>
+                </tr>
               </table>
             </form>
 <?php
