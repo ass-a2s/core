@@ -128,27 +128,18 @@ function filter_configure()
 
 function filter_delete_states_for_down_gateways()
 {
-    $GatewaysList = return_gateways_array(false, true) + return_gateway_groups_array();
     $a_gateways = return_gateways_status();
+    $ifdetails = legacy_interfaces_details();
     $any_gateway_down = false;
-
-    if (is_array($GatewaysList)) {
-        foreach ($GatewaysList as $gwname => $gateway) {
-            /* XXX what does this do exactly? */
-            if (empty($gateway['monitor'])) {
-                continue;
-            } elseif (!is_ipaddr($gateway['monitor'])) {
-                continue;
-            } elseif (strstr($gateway['monitor'], '127.0.0.')) {
-                continue;
-            } elseif (empty($a_gateways[$gateway['name']])) {
-                continue;
-            }
-
-            if (stristr($a_gateways[$gateway['name']]['status'], 'down')) {
-                $any_gateway_down = true;
-                break;
-            }
+    foreach ((new \OPNsense\Routing\Gateways($ifdetails))->gatewaysIndexedByName(false, true) as $gateway) {
+        if (empty($gateway['monitor']) || empty($a_gateways[$gateway['name']])) {
+            continue;
+        } elseif (!is_ipaddr($gateway['monitor']) || strstr($gateway['monitor'], '127.0.0.')) {
+            continue;
+        }
+        if (stristr($a_gateways[$gateway['name']]['status'], 'down')) {
+            $any_gateway_down = true;
+            break;
         }
     }
 
@@ -298,8 +289,21 @@ function filter_configure_sync($verbose = false, $flush_states = false, $load_al
     }
 
     if (isset($config['system']['gw_switch_default'])) {
-        /* XXX gw_switch_group4 and gw_switch_group6 to pass down: */
-        fixup_default_gateway();
+        // When gateway switching is enabled, we might consider a different default gateway.
+        // although this isn't really the right spot for the feature (it's a monitoring/routing decision),
+        // we keep it here for now (historical reasons).
+        $down_gateways = return_down_gateways();
+        foreach (array("inet", "inet6") as $ipprotocol) {
+            if (!empty($down_gateways)) {
+                log_error(sprintf("Ignore down %s gateways : %s", $ipprotocol, implode(",", $down_gateways)));
+            }
+            $default_gw = $fw->getGateways()->getDefaultGW($down_gateways, $ipprotocol);
+            if ($default_gw !== null) {
+                system_default_route(
+                    $default_gw['gateway'], $ipprotocol, $default_gw['if'], isset($default_gw['fargw'])
+                );
+            }
+        }
     }
 
     $aliases = filter_generate_aliases();
@@ -480,7 +484,7 @@ function filter_configure_sync($verbose = false, $flush_states = false, $load_al
         flush();
     }
 
-    if (!isset($config['system']['kill_states'])) {
+    if (empty($config['system']['kill_states'])) {
         filter_delete_states_for_down_gateways();
     }
 

@@ -30,7 +30,7 @@
 require_once("guiconfig.inc");
 require_once("auth.inc");
 
-function add_local_user($username, $userdn, $userfullname)
+function add_local_user($username, $userdn, $userfullname, $useremail)
 {
     global $config;
 
@@ -39,7 +39,7 @@ function add_local_user($username, $userdn, $userfullname)
           // link local user to remote server by updating user_dn
           $user['user_dn'] = $userdn;
           // trash user password when linking to ldap, avoid accidental login
-          // using fall-back local password. User could still reset it's
+          // using fall-back local password. User could still reset its
           // local password, but only by choice.
           local_user_set_password($user);
           local_user_set($user);
@@ -52,6 +52,7 @@ function add_local_user($username, $userdn, $userfullname)
     $new_user['name'] = $username;
     $new_user['user_dn'] = $userdn;
     $new_user['descr'] = $userfullname;
+    $new_user['email'] = $useremail;
     local_user_set_password($new_user);
     $new_user['uid'] = $config['system']['nextuid']++;
     $config['system']['user'][] = $new_user;
@@ -107,7 +108,7 @@ if ($ldap_server !== null) {
                           // our system.
                           $username = explode('@', $ldap_user['name'])[0];
                           $username = substr(preg_replace("/[^a-zA-Z0-9\.\-_]/", "", $username),0 ,32);
-                          add_local_user($username , $ldap_user['dn'], $ldap_user['fullname']);
+                          add_local_user($username , $ldap_user['dn'], $ldap_user['fullname'], $ldap_user['email']);
                           $update_count++;
                       }
                   }

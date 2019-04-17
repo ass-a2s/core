@@ -36,6 +36,7 @@ use \OPNsense\Core\Config;
  */
 class Plugin
 {
+    private $gateways = null;
     private $anchors = array();
     private $filterRules = array();
     private $natRules = array();
@@ -96,21 +97,28 @@ class Plugin
 
     /**
      * set defined gateways (route-to)
-     * @param array $gateways named array
+     * @param  \OPNsense\Routing\Gateways $gateways object
      */
-    public function setGateways($gateways)
+    public function setGateways(\OPNsense\Routing\Gateways $gateways)
     {
-        if (is_array($gateways)) {
-            foreach ($gateways as $key => $gw) {
-                if (Util::isIpAddress($gw['gateway']) && !empty($gw['interface'])) {
-                    $this->gatewayMapping[$key] = array("logic" => "route-to ( {$gw['interface']} {$gw['gateway']} )",
-                                                        "interface" => $gw['interface'],
-                                                        "gateway" => $gw['gateway'],
-                                                        "proto" => strstr($gw['gateway'], ':') ? "inet6" : "inet",
-                                                        "type" => "gateway");
-                }
+        $this->gateways = $gateways;
+        foreach ($gateways->gatewaysIndexedByName(false, true) as $key => $gw) {
+            if (Util::isIpAddress($gw['gateway']) && !empty($gw['if'])) {
+                $this->gatewayMapping[$key] = array("logic" => "route-to ( {$gw['if']} {$gw['gateway']} )",
+                                                    "interface" => $gw['if'],
+                                                    "gateway" => $gw['gateway'],
+                                                    "proto" => strstr($gw['gateway'], ':') ? "inet6" : "inet",
+                                                    "type" => "gateway");
             }
         }
+    }
+
+    /**
+     * @return \OPNsense\Routing\Gateways gateway object
+     */
+    public function getGateways(): ?\OPNsense\Routing\Gateways
+    {
+        return $this->gateways;
     }
 
     /**
@@ -242,8 +250,8 @@ class Plugin
         if ($defaults != null) {
             $conf = array_merge($defaults, $conf);
         }
-        if (empty($conf['label']) && !empty($conf['#ref'])) {
-            // generated rule, has an anchor but no label if it's trackable
+        if (empty($conf['label'])) {
+            // generated rule, has no label
             $rule_hash = Util::calcRuleHash($conf);
             $conf['label'] = $rule_hash;
         }
@@ -336,7 +344,8 @@ class Plugin
      * iterate through registered rules
      * @return Iterator
      */
-    public function iterateFilterRules() {
+    public function iterateFilterRules()
+    {
         foreach ($this->filterRules as $prio => $ruleset) {
             foreach ($ruleset as $rule) {
                  yield $rule;

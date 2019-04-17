@@ -565,7 +565,7 @@ function openvpn_reconfigure($mode, $settings, $device_only = false)
     $digest = !empty($settings['digest']) ? $settings['digest'] : 'SHA1';
 
     /* the function is used incorrectly, but works as it only checks the link connectivity */
-    $interface = get_failover_interface($settings['interface']);
+    $interface = get_real_interface($settings['interface']);
 
     /*
      * If a specific IP address (VIP) is requested, use it.
@@ -988,16 +988,6 @@ function openvpn_restart($mode, $settings)
     if (($mode == "client") && (strstr($settings['interface'], "_vip") &&
         get_carp_interface_status($settings['interface']) == "BACKUP")) {
         return;
-    }
-
-    /* Check if client is bound to a gateway group */
-    $a_groups = return_gateway_groups_array();
-    if (is_array($a_groups[$settings['interface']])) {
-        /* the interface is a gateway group. If a vip is defined and its a CARP backup then do not start */
-        if (($a_groups[$settings['interface']][0]['vip'] != '') &&
-            get_carp_interface_status($a_groups[$settings['interface']][0]['vip']) == "BACKUP") {
-            return;
-        }
     }
 
     @unlink("/var/etc/openvpn/{$mode_id}.sock");
@@ -1686,7 +1676,7 @@ function openvpn_resync_if_needed($mode, $ovpn_settings, $interface)
                 $current_device = file_get_contents($fpath);
                 $current_device = trim($current_device, " \t\n");
                 /* the function is used incorrectly, but works as it only checks the link connectivity */
-                $new_device = get_failover_interface($ovpn_settings['interface']);
+                $new_device = get_real_interface($ovpn_settings['interface']);
                 if (isset($config['interfaces'][$interface])) {
                     /* this is tied to IPv4, but as stated above it only checks the link connectivity */
                     $this_device = $config['interfaces'][$interface]['if'];

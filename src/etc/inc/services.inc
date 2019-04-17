@@ -44,6 +44,7 @@
  * targets in the future:
  */
 require_once('plugins.inc.d/dnsmasq.inc');
+require_once('plugins.inc.d/dpinger.inc');
 require_once('plugins.inc.d/ipsec.inc');
 require_once('plugins.inc.d/openssh.inc');
 require_once('plugins.inc.d/openvpn.inc');
@@ -498,17 +499,6 @@ authoritative;
 EOD;
 
     $dhcpdifs = array();
-    $add_routers = false;
-    $gateways_arr = return_gateways_array();
-    /* only add a routers line if the system has any IPv4 gateway at all */
-    /* a static route has a gateway, manually overriding this field always works */
-    foreach ($gateways_arr as $gwitem) {
-        if ($gwitem['ipprotocol'] == "inet") {
-            $add_routers = true;
-            break;
-        }
-    }
-
     /*    loop through and determine if we need to setup
      *    failover peer "bleh" entries
      */
@@ -805,15 +795,15 @@ EOPP;
         }
         // End of settings inside pools
 
-        if (!empty($dhcpifconf['gateway']) && $dhcpifconf['gateway'] != "none") {
-            $routers = $dhcpifconf['gateway'];
-            $add_routers = true;
-        } elseif (!empty($dhcpifconf['gateway']) && $dhcpifconf['gateway'] == "none") {
-            $add_routers = false;
-        } else {
+        if (!empty($dhcpifconf['gateway'])) {
+            $routers = $dhcpifconf['gateway'] != "none" ? $dhcpifconf['gateway'] : null;
+        } elseif ((new \OPNsense\Routing\Gateways(legacy_interfaces_details()))->hasGateways("inet")) {
+            // by default, add interface address in "option routers"
             $routers = $ifcfgip;
+        } else {
+            $routers = null;
         }
-        if ($add_routers) {
+        if (!empty($routers)) {
             $dhcpdconf .= "  option routers {$routers};\n";
         }
 
@@ -1504,6 +1494,7 @@ function services_dhcrelay_configure($verbose = false)
     }
 
     $iflist = get_configured_interface_with_descr();
+    $a_gateways = (new \OPNsense\Routing\Gateways(legacy_interfaces_details()))->gatewaysIndexedByName(true);
     $dhcifaces = explode(",", $dhcrelaycfg['interface']);
     foreach ($dhcifaces as $dhcrelayif) {
         if (!isset($iflist[$dhcrelayif]) || link_interface_to_bridge($dhcrelayif)) {
@@ -1538,7 +1529,6 @@ function services_dhcrelay_configure($verbose = false)
         if (!isset($destif)) {
             foreach (get_staticroutes() as $rtent) {
                 if (ip_in_subnet($srvip, $rtent['network'])) {
-                    $a_gateways = return_gateways_array(true);
                     $destif = $a_gateways[$rtent['gateway']]['interface'];
                     break;
                 }
@@ -1546,7 +1536,7 @@ function services_dhcrelay_configure($verbose = false)
         }
 
         if (!isset($destif)) {
-            /* Create a array from the existing route table */
+            /* Create an array from the existing route table */
             exec("/usr/bin/netstat -rnWf inet", $route_str);
             array_shift($route_str);
             array_shift($route_str);
@@ -1624,6 +1614,7 @@ function services_dhcrelay6_configure($verbose = false)
     }
 
     $iflist = get_configured_interface_with_descr();
+    $a_gateways = (new \OPNsense\Routing\Gateways(legacy_interfaces_details()))->gatewaysIndexedByName(true);
     $dhcifaces = explode(",", $dhcrelaycfg['interface']);
     foreach ($dhcifaces as $dhcrelayif) {
         if (!isset($iflist[$dhcrelayif]) || link_interface_to_bridge($dhcrelayif))  {
@@ -1662,7 +1653,6 @@ function services_dhcrelay6_configure($verbose = false)
             if (isset($config['staticroutes']['route'])) {
                 foreach ($config['staticroutes']['route'] as $rtent) {
                     if (ip_in_subnet($srvip, $rtent['network'])) {
-                        $a_gateways = return_gateways_array(true);
                         $destif = $a_gateways[$rtent['gateway']]['interface'];
                         break;
                     }
@@ -1671,7 +1661,7 @@ function services_dhcrelay6_configure($verbose = false)
         }
 
         if (!isset($destif)) {
-            /* Create a array from the existing route table */
+            /* Create an array from the existing route table */
             exec("/usr/bin/netstat -rnWf inet6", $route_str);
             array_shift($route_str);
             array_shift($route_str);
@@ -1771,27 +1761,6 @@ function get_dyndns_ip($int, $ipver = 4)
     }
 
     return $ip_address;
-}
-
-function is_dpinger_enabled()
-{
-    global $config;
-
-    $gwcount = 0;
-
-    if (isset($config['gateways']['gateway_item'])) {
-        foreach ($config['gateways']['gateway_item'] as $gwkey => $gateway) {
-            if (!isset($gateway['monitor_disable']) || $gateway['monitor_disable'] == '0') {
-                $gwcount += 1;
-            }
-        }
-    }
-
-    if ($gwcount == 0) {
-        return false;
-    }
-
-    return is_array(return_gateways_array());
 }
 
 function services_get()
@@ -1926,6 +1895,8 @@ function is_radvd_enabled()
 
 function service_control_start($name, $extras)
 {
+    $filter = array();
+
     if (!empty($extras['id'])) {
         $filter['id'] = $extras['id'];
     }
@@ -1997,6 +1968,8 @@ function service_control_stop($name, $extras)
 
 function service_control_restart($name, $extras)
 {
+    $filter = array();
+
     if (!empty($extras['id'])) {
         $filter['id'] = $extras['id'];
     }

@@ -31,7 +31,7 @@
  */
 
 require_once("interfaces.lib.inc");
-require_once("gwlb.inc");
+require_once("plugins.inc.d/dpinger.inc"); /* XXX remove me */
 
 /*
  * converts a string like "a,b,c,d"
@@ -606,7 +606,7 @@ function interface_lagg_configure(&$lagg)
         $laggif = legacy_interface_create('lagg');
     }
 
-    // determine mtu value to use, either the provided one for the lagg or smallest of it's children
+    // determine mtu value to use, either the provided one for the lagg or smallest of its children
     $mtu = null;
     if (!empty($lagg['mtu'])) {
         // mtu provided for lagg
@@ -811,20 +811,21 @@ function interface_gif_configure(&$gif, $gifkey = "")
     $realif = get_real_interface($gif['if']);
     $ipaddr = $gif['ipaddr'];
 
+    $gateways = new \OPNsense\Routing\Gateways(legacy_interfaces_details());
     if (is_ipaddrv4($gif['remote-addr'])) {
         if (is_ipaddrv4($ipaddr)) {
             $realifip = $ipaddr;
         } else {
             $realifip = get_interface_ip($gif['if']);
         }
-        $realifgw = get_interface_gateway($gif['if']);
+        $realifgw = $gateways->getInterfaceGateway($gif['if'], "inet");
     } elseif (is_ipaddrv6($gif['remote-addr'])) {
         if (is_ipaddrv6($ipaddr)) {
             $realifip = $ipaddr;
         } else {
             $realifip = get_interface_ipv6($gif['if']);
         }
-        $realifgw = get_interface_gateway_v6($gif['if']);
+        $realifgw = $gateways->getInterfaceGateway($gif['if'], "inet6");
     }
 
     interfaces_bring_up($realif);
@@ -860,7 +861,7 @@ function interface_gif_configure(&$gif, $gifkey = "")
 
     foreach (array_keys(get_configured_interface_with_descr()) as $ifname) {
         if ($config['interfaces'][$ifname]['if'] == $gifif) {
-            if (get_interface_gateway($ifname) || get_interface_gateway_v6($ifname)) {
+            if ($gateways->getInterfaceGateway($ifname, "inet") || $gateways->getInterfaceGateway($ifname, "inet6")) {
                 system_routing_configure(false, $ifname);
                 break;
             }
@@ -1009,7 +1010,7 @@ function interface_bring_down($interface = "wan", $ifacecfg = false)
         foreach ($config['virtualip']['vip'] as $vip) {
             if ($vip['interface'] == $interface && $vip['mode'] != 'carp') {
                 /**
-                 * only disable non carp aliases, net.inet.carp.ifdown_demotion_factor should do it's work
+                 * only disable non carp aliases, net.inet.carp.ifdown_demotion_factor should do its work
                  * when a carp interface goes down
                  */
                 interface_vip_bring_down($vip);
@@ -2330,8 +2331,7 @@ function interface_configure($verbose = false, $interface = 'wan', $reload = fal
 
     if (!file_exists("/var/run/booting") && !(substr($realif, 0, 4) == "ovpn")) {
         /* remove all IPv4 and IPv6 addresses */
-        $tmpifaces = legacy_getall_interface_addresses($realif);
-        foreach ($tmpifaces as $tmpiface) {
+        foreach (array_keys(interfaces_addresses($realif, true)) as $tmpiface) {
             if (is_ipaddrv6($tmpiface) || is_subnetv6($tmpiface)) {
                 if (!is_linklocal($tmpiface)) {
                     mwexec("/sbin/ifconfig " . escapeshellarg($realif) . " inet6 {$tmpiface} delete");
@@ -2483,7 +2483,7 @@ function interface_configure($verbose = false, $interface = 'wan', $reload = fal
         }
     }
 
-    // in case this interface has vlan's configured, make sure none of them has an mtu set higher than it's parent
+    // in case this interface has vlan's configured, make sure none of them has an mtu set higher than its parent
     if (!empty($config['vlans']['vlan'])) {
         $intf_stats = legacy_interface_stats();
         foreach ($config['vlans']['vlan'] as $vlan) {
@@ -2738,7 +2738,8 @@ function interface_6rd_configure($interface = 'wan', $wancfg)
     file_put_contents("/tmp/{$stfiface}_routerv6", "{$rd6brgw}\n");
     file_put_contents("/tmp/{$stfiface}_defaultgwv6", "{$rd6brgw}\n");
 
-    $ip4gateway = get_interface_gateway($interface);
+    $gateways = new \OPNsense\Routing\Gateways(legacy_interfaces_details());
+    $ip4gateway = $gateways->getInterfaceGateway($interface, "inet");
     if (is_ipaddrv4($ip4gateway)) {
         system_host_route($wancfg['gateway-6rd'], $ip4gateway);
     }
@@ -2832,7 +2833,8 @@ function interface_6to4_configure($interface = 'wan', $wancfg)
     file_put_contents("/tmp/{$stfiface}_routerv6", "{$stfbrgw}");
     file_put_contents("/tmp/{$stfiface}_defaultgwv6", "{$stfbrgw}");
 
-    $ip4gateway = get_interface_gateway($interface);
+    $gateways = new \OPNsense\Routing\Gateways(legacy_interfaces_details());
+    $ip4gateway = $gateways->getInterfaceGateway($interface, "inet");
     if (is_ipaddrv4($ip4gateway)) {
         system_host_route('192.88.99.1', $ip4gateway);
     }
@@ -3979,7 +3981,7 @@ function ip_in_interface_alias_subnet($interface, $ipalias)
 
 function get_interface_ip($interface = 'wan')
 {
-    $realif = get_failover_interface($interface);
+    $realif = get_real_interface($interface);
     if ($realif) {
         return find_interface_ip($realif);
     }
@@ -3995,7 +3997,7 @@ function get_interface_ipv6($interface = 'wan')
 {
     global $config;
 
-    $realif = get_failover_interface($interface, 'inet6');
+    $realif = get_real_interface($interface, 'inet6');
     if ($realif) {
         return isset($config['interfaces'][$interface]['dhcp6prefixonly']) ?
             find_interface_ipv6_ll($realif) : find_interface_ipv6($realif);
@@ -4154,6 +4156,7 @@ function interfaces_staticarp_configure($if)
     }
 }
 
+/* XXX this function is unused and to be removed on our way to 19.7 */
 function get_failover_interface($interface, $family = 'all')
 {
     global $config;
@@ -4184,6 +4187,7 @@ function get_interfaces_info()
     global $config;
     $result = array();
     $all_intf_details = legacy_interfaces_details();
+    $gateways = new \OPNsense\Routing\Gateways($all_intf_details);
     $ifup = legacy_interface_listget('up');
     $all_intf_stats = legacy_interface_stats();
     foreach (legacy_config_get_interfaces(array("virtual" => false)) as $ifdescr => $ifcnf) {
@@ -4323,8 +4327,8 @@ function get_interfaces_info()
             }
             /* lookup the gateway */
             if (interface_has_gateway($ifdescr)) {
-                $ifinfo['gateway'] = get_interface_gateway($ifdescr);
-                $ifinfo['gatewayv6'] = get_interface_gateway_v6($ifdescr);
+                $ifinfo['gateway'] = $gateways->getInterfaceGateway($ifdescr, "inet");
+                $ifinfo['gatewayv6'] = $gateways->getInterfaceGateway($ifdescr, "inet6");
             }
         }
 
@@ -4558,7 +4562,7 @@ function make_ipv6_64_address($prefix, $suffix)
     return implode(':', $prefix_array);
 }
 
-function interfaces_addresses($interfaces)
+function interfaces_addresses($interfaces, $as_subnet = false)
 {
     global $config;
 
@@ -4570,17 +4574,16 @@ function interfaces_addresses($interfaces)
     }
 
     foreach ($interfaces as $interface) {
-        if ($interface == 'lo0') {
-            $realifs[] = 'lo0';
-        }
-
         if (isset($config['interfaces'][$interface])) {
             foreach (array('all', 'inet6') as $family) {
                 $realif = get_real_interface($interface, $family);
-                if (!empty($realif) && !in_array($realif, $realifs)) {
+                if (!empty($realif)) {
                     $realifs[] = $realif;
                 }
             }
+        } else {
+            /* take interfaces as is */
+            $realifs[] = $interface;
         }
     }
 
@@ -4589,6 +4592,7 @@ function interfaces_addresses($interfaces)
     }
 
     $intf_details = legacy_interfaces_details();
+    $realifs = array_unique($realifs);
 
     foreach ($realifs as $realif) {
         foreach (array('ipv4', 'ipv6') as $proto) {
@@ -4603,7 +4607,15 @@ function interfaces_addresses($interfaces)
                 if (!empty($address['link-local'])) {
                     $scope = "%{$realif}";
                 }
-                $result["{$address['ipaddr']}{$scope}"] = array(
+                $suffix = '';
+                if ($as_subnet) {
+                    if (empty($address['subnetbits'])) {
+                        continue;
+                    }
+                    $suffix = "/{$address['subnetbits']}";
+                    $scope = '';
+                }
+                $result["{$address['ipaddr']}{$scope}{$suffix}"] = array(
                     'family' => $proto == 'ipv4' ? 'inet' : 'inet6',
                     'scope' => !empty($scope),
                     'name' => $realif,

@@ -64,8 +64,7 @@ function does_vip_exist($vip)
             return false;
     }
 
-    $ifacedata = legacy_getall_interface_addresses($realif);
-    foreach ($ifacedata as $vipips) {
+    foreach (array_keys(interfaces_addresses($realif, true)) as $vipips) {
         if ($vipips == "{$vip['subnet']}/{$vip['subnet_bits']}") {
             return true;
         }

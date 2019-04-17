@@ -1,38 +1,37 @@
 <?php
 
 /*
- *    Copyright (C) 2016 IT-assistans Sverige AB
- *    Copyright (C) 2016 Deciso B.V.
- *    Copyright (C) 2018 Fabian Franz
- *    All rights reserved.
+ * Copyright (C) 2016 IT-assistans Sverige AB
+ * Copyright (C) 2016 Deciso B.V.
+ * Copyright (C) 2018 Fabian Franz
+ * All rights reserved.
  *
- *    Redistribution and use in source and binary forms, with or without
- *    modification, are permitted provided that the following conditions are met:
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
  *
- *    1. Redistributions of source code must retain the above copyright notice,
- *       this list of conditions and the following disclaimer.
+ * 1. Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer.
  *
- *    2. Redistributions in binary form must reproduce the above copyright
- *       notice, this list of conditions and the following disclaimer in the
- *       documentation and/or other materials provided with the distribution.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
  *
- *    THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
- *    INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
- *    AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
- *    AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
- *    OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- *    SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- *    INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- *    CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- *    ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- *    POSSIBILITY OF SUCH DAMAGE.
+ * THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
+ * AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
+ * OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
  */
 
 namespace OPNsense\Base;
 
+use \OPNsense\Core\ACL;
 use \OPNsense\Core\Config;
-use OPNsense\Core\ACL;
-use \OPNsense\Base\UserException;
 
 /**
  * Class ApiMutableModelControllerBase, inherit this class to implement
@@ -122,6 +121,7 @@ abstract class ApiMutableModelControllerBase extends ApiControllerBase
      * @return array result / validation output
      * @throws \Phalcon\Validation\Exception on validation issues
      * @throws \ReflectionException when binding to the model class fails
+     * @throws UserException when denied write access
      */
     protected function validateAndSave($node = null, $prefix = null)
     {
@@ -177,6 +177,7 @@ abstract class ApiMutableModelControllerBase extends ApiControllerBase
      * @return array result / validation output
      * @throws \Phalcon\Validation\Exception on validation issues
      * @throws \ReflectionException when binding to the model class fails
+     * @throws \OPNsense\Base\UserException when denied write access
      */
     protected function save()
     {
@@ -187,7 +188,7 @@ abstract class ApiMutableModelControllerBase extends ApiControllerBase
         } else {
             // XXX remove user-config-readonly in some future release
             throw new UserException(
-              sprintf("User %s denied for write access (user-config-readonly set)", $this->getUserName())
+                sprintf("User %s denied for write access (user-config-readonly set)", $this->getUserName())
             );
         }
     }
@@ -208,6 +209,7 @@ abstract class ApiMutableModelControllerBase extends ApiControllerBase
      * @return array status / validation errors
      * @throws \Phalcon\Validation\Exception on validation issues
      * @throws \ReflectionException when binding to the model class fails
+     * @throws UserException when denied write access
      */
     public function setAction()
     {
@@ -234,10 +236,11 @@ abstract class ApiMutableModelControllerBase extends ApiControllerBase
      * @param string $path path to search, relative to this model
      * @param array $fields fieldnames to fetch in result
      * @param string|null $defaultSort default sort field name
+     * @param null|function $filter_funct additional filter callable
      * @return array
      * @throws \ReflectionException when binding to the model class fails
      */
-    public function searchBase($path, $fields, $defaultSort = null)
+    public function searchBase($path, $fields, $defaultSort = null, $filter_funct = null)
     {
         $this->sessionClose();
         $element = $this->getModel();
@@ -248,7 +251,8 @@ abstract class ApiMutableModelControllerBase extends ApiControllerBase
         return $grid->fetchBindRequest(
             $this->request,
             $fields,
-            $defaultSort
+            $defaultSort,
+            $filter_funct
         );
     }
 
@@ -287,8 +291,9 @@ abstract class ApiMutableModelControllerBase extends ApiControllerBase
      * @return array
      * @throws \Phalcon\Validation\Exception on validation issues
      * @throws \ReflectionException when binding to the model class fails
+     * @throws UserException when denied write access
      */
-    public function addBase($post_field, $path, $overlay=null)
+    public function addBase($post_field, $path, $overlay = null)
     {
         $result = array("result" => "failed");
         if ($this->request->isPost() && $this->request->hasPost($post_field)) {
@@ -325,6 +330,7 @@ abstract class ApiMutableModelControllerBase extends ApiControllerBase
      * @return array
      * @throws \Phalcon\Validation\Exception on validation issues
      * @throws \ReflectionException when binding to the model class fails
+     * @throws UserException when denied write access
      */
     public function delBase($path, $uuid)
     {
@@ -358,8 +364,9 @@ abstract class ApiMutableModelControllerBase extends ApiControllerBase
      * @return array
      * @throws \Phalcon\Validation\Exception on validation issues
      * @throws \ReflectionException when binding to the model class fails
+     * @throws UserException when denied write access
      */
-    public function setBase($post_field, $path, $uuid, $overlay=null)
+    public function setBase($post_field, $path, $uuid, $overlay = null)
     {
         if ($this->request->isPost() && $this->request->hasPost($post_field)) {
             $mdl = $this->getModel();
@@ -393,6 +400,7 @@ abstract class ApiMutableModelControllerBase extends ApiControllerBase
      * @return array
      * @throws \Phalcon\Validation\Exception on validation issues
      * @throws \ReflectionException when binding to the model class fails
+     * @throws UserException when denied write access
      */
     public function toggleBase($path, $uuid, $enabled = null)
     {
